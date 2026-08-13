@@ -1,0 +1,62 @@
+{
+  "truck": {
+    "size": 250,
+    "cruiseSpeed": 420,
+    "laneHeight": 23,
+    "bobAmplitude": 4,
+    "bobFrequency": 1.8
+  },
+  "banner": {
+    "width": 166,
+    "height": 58,
+    "tetherLength": 22,
+    "cornerRadius": 12,
+    "swayAmplitude": 5,
+    "swayFrequency": 1.4,
+    "color": "#91b0a4"
+  },
+  "timing": {
+    "enterDuration": 0.8,
+    "bannerUnfurlDuration": 0.55,
+    "tipDelay": 0.03
+  },
+  "bump": {
+    "position": 55,
+    "joltHeight": 50,
+    "joltDuration": 0.36,
+    "rotationAngle": 20,
+    "hangTime": 0.2
+  },
+  "cup": {
+    "size": 150,
+    "flightDuration": 0.58,
+    "morphDuration": 0.12,
+    "slideDuration": 0.55,
+    "launchVelocityX": 120,
+    "launchVelocityY": -430,
+    "gravity": 1250,
+    "spinRate": 260
+  },
+  "splash": {
+    "duration": 0.34,
+    "radius": 38,
+    "dropletCount": 8
+  },
+  "liquid": {
+    "streamWidth": 54,
+    "flowSpeed": 520,
+    "pourDuration": 0.28,
+    "dropletCount": 34,
+    "opacity": 0.78,
+    "color": "#6f3f24"
+  },
+  "wobble": {
+    "amplitude": 9,
+    "frequency": 3.8,
+    "decay": 2.4,
+    "exitAcceleration": 200
+  },
+  "global": {
+    "durationScale": 1
+  }
+}
