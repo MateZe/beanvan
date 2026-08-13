@@ -3,11 +3,11 @@ import QuartzCore
 
 @MainActor
 final class OverlayController {
-    private let image: NSImage
+    private let resources: AppResources
     private var window: NSWindow?
 
-    init(image: NSImage) {
-        self.image = image
+    init(resources: AppResources) {
+        self.resources = resources
     }
 
     func show() {
@@ -34,7 +34,10 @@ final class OverlayController {
         window.orderFrontRegardless()
 
         self.window = window
-        overlayView.animate(image: image)
+        overlayView.animate(
+            image: resources.images[.truckUpright],
+            config: resources.animationConfig
+        )
     }
 
     func dismiss() {
@@ -57,20 +60,20 @@ private final class OverlayView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func animate(image: NSImage) {
+    func animate(image: NSImage, config: AnimationConfig) {
         guard
             let rootLayer = layer,
             let imageRepresentation = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
         else { return }
 
-        let imageWidth: CGFloat = 250
+        let imageWidth = config.truck.size
         let aspectRatio = CGFloat(imageRepresentation.height) / CGFloat(imageRepresentation.width)
         let imageSize = CGSize(width: imageWidth, height: imageWidth * aspectRatio)
         let imageLayer = CALayer()
         imageLayer.bounds = CGRect(origin: .zero, size: imageSize)
         imageLayer.contents = imageRepresentation
         imageLayer.contentsGravity = .resizeAspect
-        imageLayer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        imageLayer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
 
         let startX = -imageSize.width / 2
         let endX = bounds.width + imageSize.width / 2
@@ -85,7 +88,8 @@ private final class OverlayView: NSView {
         let animation = CABasicAnimation(keyPath: "position.x")
         animation.fromValue = startX
         animation.toValue = endX
-        animation.duration = 3
+        animation.duration = CFTimeInterval((endX - startX) / config.truck.cruiseSpeed)
+            * config.global.durationScale
         animation.timingFunction = CAMediaTimingFunction(name: .linear)
         imageLayer.add(animation, forKey: "slideAcrossScreen")
     }

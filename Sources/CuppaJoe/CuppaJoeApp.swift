@@ -7,11 +7,21 @@ struct CuppaJoeApp: App {
 
     var body: some Scene {
         MenuBarExtra("CuppaJoe", systemImage: "cup.and.saucer.fill") {
-            MenuContent()
+            Button("Preview Animation") {
+                appDelegate.previewAnimation()
+            }
+
+            Divider()
+
+            Button("Quit") {
+                NSApp.terminate(nil)
+            }
+            .keyboardShortcut("q")
         }
     }
 }
 
+@MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayController: OverlayController?
 
@@ -19,27 +29,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         let resources = AppResources.shared
-        let overlayController = OverlayController(image: resources.images[0])
-        self.overlayController = overlayController
-        overlayController.show()
+        overlayController = OverlayController(resources: resources)
     }
-}
 
-private struct MenuContent: View {
-    private let resources = AppResources.shared
-
-    var body: some View {
-        Text("CuppaJoe")
-            .font(.headline)
-
-        Text("\(resources.images.count) images and config.json loaded")
-            .foregroundStyle(.secondary)
-
-        Divider()
-
-        Button("Quit") {
-            NSApp.terminate(nil)
-        }
-        .keyboardShortcut("q")
+    func previewAnimation() {
+        overlayController?.show()
     }
 }
