@@ -41,12 +41,23 @@
     "launchVelocityX": 120,
     "launchVelocityY": -430,
     "gravity": 1250,
-    "spinRate": 260
+    "spinRate": 260,
+    "slideAccelerationX": 160,
+    "slideSpinAcceleration": 120,
+    "slideTargetHeightFraction": 0.65,
+    "compressionDuration": 0.05,
+    "compressionWidthFraction": 0.09,
+    "compressionHeightFraction": 0.08,
+    "rimOffsetXFraction": 0.28,
+    "rimOffsetYFraction": 0.36
   },
   "splash": {
     "duration": 0.34,
     "radius": 38,
-    "dropletCount": 8
+    "dropletCount": 8,
+    "burstDurationFraction": 0.45,
+    "burstOvershoot": 1.25,
+    "dropletFallFraction": 0.22
   },
   "liquid": {
     "streamWidth": 54,
@@ -54,13 +65,31 @@
     "pourDuration": 0.28,
     "dropletCount": 34,
     "opacity": 0.78,
-    "color": "#6f3f24"
+    "color": "#6f3f24",
+    "gravityScale": 0.52,
+    "streamInitialSpeedScale": 0.2,
+    "streamSampleInterval": 0.038,
+    "streamWideningDuration": 0.7,
+    "streamBaseHalfWidthFraction": 0.24,
+    "streamWideningRate": 0.5,
+    "streamJitterFrequency": 47,
+    "streamJitterFraction": 0.045,
+    "streamWidthVariation": 0.1,
+    "streamWidthVariationFrequency": 71,
+    "dropletEmissionDelay": 0.025,
+    "dropletEmissionInterval": 0.025,
+    "dropletMinimumSpeedScale": 0.72,
+    "dropletSpeedVariation": 0.28,
+    "dropletHorizontalSpreadFraction": 0.45,
+    "dropletHorizontalDrift": 14,
+    "fadeDuration": 0.5
   },
   "wobble": {
     "amplitude": 9,
     "frequency": 3.8,
     "decay": 2.4,
-    "exitAcceleration": 200
+    "exitAcceleration": 200,
+    "recoveryDelay": 0.3
   },
   "global": {
     "durationScale": 1

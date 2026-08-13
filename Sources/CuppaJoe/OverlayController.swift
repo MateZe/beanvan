@@ -6,6 +6,7 @@ import QuartzCore
 final class OverlayController {
     private let resources: AppResources
     private var window: NSWindow?
+    private var escapeKeyMonitor: Any?
 
     init(resources: AppResources) {
         self.resources = resources
@@ -16,7 +17,7 @@ final class OverlayController {
 
         dismiss()
 
-        let window = NSWindow(
+        let window = OverlayWindow(
             contentRect: screen.frame,
             styleMask: .borderless,
             backing: .buffered,
@@ -30,11 +31,16 @@ final class OverlayController {
         window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
 
-        let overlayView = OverlayView(frame: NSRect(origin: .zero, size: screen.frame.size))
+        let overlayView = OverlayView(
+            frame: NSRect(origin: .zero, size: screen.frame.size),
+            dismissHandler: { [weak self] in
+                self?.dismiss()
+            }
+        )
         window.contentView = overlayView
-        window.orderFrontRegardless()
-
         self.window = window
+        installEscapeKeyMonitor()
+        window.orderFrontRegardless()
         overlayView.animate(
             images: resources.images,
             config: resources.animationConfig
@@ -42,13 +48,45 @@ final class OverlayController {
     }
 
     func dismiss() {
+        removeEscapeKeyMonitor()
+        (window?.contentView as? OverlayView)?.stopAnimation()
         window?.orderOut(nil)
         window = nil
+    }
+
+    private func installEscapeKeyMonitor() {
+        removeEscapeKeyMonitor()
+        escapeKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return event }
+            self?.dismiss()
+            return nil
+        }
+    }
+
+    private func removeEscapeKeyMonitor() {
+        if let escapeKeyMonitor {
+            NSEvent.removeMonitor(escapeKeyMonitor)
+            self.escapeKeyMonitor = nil
+        }
     }
 }
 
 @MainActor
+private final class OverlayWindow: NSWindow {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+@MainActor
 private final class OverlayView: NSView {
+    private let dismissHandler: () -> Void
+    private var spillAnimator: SpillAnimator?
+    private weak var truckHitLayer: CALayer?
+    private weak var bannerHitLayer: CALayer?
+    private weak var cupHitLayer: CALayer?
+    private var interactionDisplayLink: CADisplayLink?
+    private var completionTimer: Timer?
+
     private enum TruckArtwork {
         static let uprightCrop = CGRect(x: 68, y: 105, width: 365, height: 280)
         static let tippedCrop = CGRect(x: 63, y: 105, width: 372, height: 290)
@@ -66,7 +104,8 @@ private final class OverlayView: NSView {
         static let embeddedCrop = CGRect(x: 105, y: 122, width: 139, height: 180)
     }
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, dismissHandler: @escaping () -> Void) {
+        self.dismissHandler = dismissHandler
         super.init(frame: frameRect)
         wantsLayer = true
         layer = CALayer()
@@ -76,6 +115,22 @@ private final class OverlayView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        containsVisibleContent(at: point) ? self : nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        dismissHandler()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        dismissHandler()
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        dismissHandler()
     }
 
     func animate(images: ImageCache, config: AnimationConfig) {
@@ -90,6 +145,7 @@ private final class OverlayView: NSView {
             let croppedEmbeddedCupImage = uprightImage.cropping(to: CupArtwork.embeddedCrop)
         else { return }
 
+        stopAnimation()
         rootLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
 
         let truckSize = CGSize(
@@ -112,6 +168,18 @@ private final class OverlayView: NSView {
             contentsScale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         )
         let truckLayer = truckLayers.container
+        let bumpTime = bumpTimeForViewport(
+            viewportWidth: bounds.width,
+            truckWidth: truckSize.width,
+            config: config
+        )
+        let exitTime = truckExitTimeForViewport(
+            viewportWidth: bounds.width,
+            truckWidth: truckSize.width,
+            bumpTime: bumpTime,
+            config: config
+        )
+        let timelineStartTime = rootLayer.convertTime(CACurrentMediaTime(), from: nil)
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -122,20 +190,25 @@ private final class OverlayView: NSView {
         rootLayer.addSublayer(travelLayer)
         travelLayer.addSublayer(bobLayer)
         bobLayer.addSublayer(bumpLayer)
-        addBanner(to: bumpLayer, config: config)
+        addBanner(
+            to: bumpLayer,
+            timelineStartTime: timelineStartTime,
+            bumpTime: bumpTime,
+            exitTime: exitTime,
+            config: config
+        )
         bumpLayer.addSublayer(truckLayer)
         CATransaction.commit()
 
-        let bumpTime = bumpTimeForViewport(
-            viewportWidth: bounds.width,
-            truckWidth: truckSize.width,
-            config: config
-        )
+        truckHitLayer = truckLayer
 
         animateHorizontalTravel(
             layer: travelLayer,
             viewportWidth: bounds.width,
             truckWidth: truckSize.width,
+            bumpTime: bumpTime,
+            exitTime: exitTime,
+            timelineStartTime: timelineStartTime,
             config: config
         )
         animateBob(layer: bobLayer, config: config)
@@ -143,6 +216,14 @@ private final class OverlayView: NSView {
             assemblyLayer: bumpLayer,
             truckLayer: truckLayer,
             beginTime: bumpTime,
+            timelineStartTime: timelineStartTime,
+            config: config
+        )
+        animateRecoveryWobble(
+            layer: truckLayer,
+            bumpTime: bumpTime,
+            exitTime: exitTime,
+            timelineStartTime: timelineStartTime,
             config: config
         )
         animateTipAndCup(
@@ -154,8 +235,25 @@ private final class OverlayView: NSView {
             truckSize: truckSize,
             laneCenter: laneCenter,
             bumpTime: bumpTime,
+            exitTime: exitTime,
+            timelineStartTime: timelineStartTime,
             config: config
         )
+        startInteractionTracking()
+        scheduleCompletion(after: exitTime * config.global.durationScale)
+    }
+
+    func stopAnimation() {
+        completionTimer?.invalidate()
+        completionTimer = nil
+        interactionDisplayLink?.invalidate()
+        interactionDisplayLink = nil
+        window?.ignoresMouseEvents = true
+        spillAnimator?.stop()
+        spillAnimator = nil
+        truckHitLayer = nil
+        bannerHitLayer = nil
+        cupHitLayer = nil
     }
 
     private func makeTruckLayers(
@@ -202,7 +300,13 @@ private final class OverlayView: NSView {
         return layer
     }
 
-    private func addBanner(to truckAssembly: CALayer, config: AnimationConfig) {
+    private func addBanner(
+        to truckAssembly: CALayer,
+        timelineStartTime: CFTimeInterval,
+        bumpTime: TimeInterval,
+        exitTime: TimeInterval,
+        config: AnimationConfig
+    ) {
         let banner = config.banner
         let tetherLayer = CALayer()
         let bannerPivotLayer = CALayer()
@@ -241,12 +345,16 @@ private final class OverlayView: NSView {
         bannerPivotLayer.addSublayer(bannerLayer)
         bannerLayer.addSublayer(textLayer)
         truckAssembly.addSublayer(tetherLayer)
+        bannerHitLayer = bannerLayer
 
         animateBannerUnfurl(layer: bannerLayer, config: config)
         animateBannerSway(
             pivotLayer: bannerPivotLayer,
             bannerLayer: bannerLayer,
             connectorLayer: connectorLayer,
+            timelineStartTime: timelineStartTime,
+            bumpTime: bumpTime,
+            exitTime: exitTime,
             config: config
         )
     }
@@ -344,10 +452,50 @@ private final class OverlayView: NSView {
         return -truckWidth + config.truck.cruiseSpeed * enterDuration * easedProgress
     }
 
+    private func truckPosition(
+        at elapsed: TimeInterval,
+        truckWidth: CGFloat,
+        bumpTime: TimeInterval,
+        config: AnimationConfig
+    ) -> CGFloat {
+        let recoveryAge = max(0, elapsed - bumpTime - config.wobble.recoveryDelay)
+        return baseTruckPosition(at: elapsed, truckWidth: truckWidth, config: config)
+            + 0.5 * config.wobble.exitAcceleration * recoveryAge * recoveryAge
+    }
+
+    private func truckExitTimeForViewport(
+        viewportWidth: CGFloat,
+        truckWidth: CGFloat,
+        bumpTime: TimeInterval,
+        config: AnimationConfig
+    ) -> TimeInterval {
+        let targetLeft = viewportWidth + truckWidth
+        let recoveryTime = bumpTime + config.wobble.recoveryDelay
+        let unacceleratedExitTime = (targetLeft + truckWidth) / config.truck.cruiseSpeed
+        guard unacceleratedExitTime > recoveryTime,
+              config.wobble.exitAcceleration > 0 else {
+            return unacceleratedExitTime
+        }
+
+        let recoveryPosition = baseTruckPosition(
+            at: recoveryTime,
+            truckWidth: truckWidth,
+            config: config
+        )
+        let remainingDistance = max(0, targetLeft - recoveryPosition)
+        let speed = config.truck.cruiseSpeed
+        let acceleration = config.wobble.exitAcceleration
+        let acceleratedDuration = (
+            -speed + sqrt(speed * speed + 2 * acceleration * remainingDistance)
+        ) / acceleration
+        return recoveryTime + acceleratedDuration
+    }
+
     private func animateBump(
         assemblyLayer: CALayer,
         truckLayer: CALayer,
         beginTime: TimeInterval,
+        timelineStartTime: CFTimeInterval,
         config: AnimationConfig
     ) {
         let bump = config.bump
@@ -370,7 +518,7 @@ private final class OverlayView: NSView {
 
         let angle = bump.rotationAngle * .pi / 180
         rotationValues.append(contentsOf: [angle * bump.landingRotationOvershootFraction, 0])
-        let animationBeginTime = assemblyLayer.convertTime(CACurrentMediaTime(), from: nil)
+        let animationBeginTime = timelineStartTime
             + beginTime * config.global.durationScale
         let scaledDuration = totalDuration * config.global.durationScale
 
@@ -414,6 +562,8 @@ private final class OverlayView: NSView {
         truckSize: CGSize,
         laneCenter: CGFloat,
         bumpTime: TimeInterval,
+        exitTime: TimeInterval,
+        timelineStartTime: CFTimeInterval,
         config: AnimationConfig
     ) {
         let launchTime = bumpTime + config.timing.tipDelay
@@ -422,7 +572,12 @@ private final class OverlayView: NSView {
         let bobOffset = -sin(launchTime * config.truck.bobFrequency * 2 * .pi)
             * config.truck.bobAmplitude
         let truckCenter = CGPoint(
-            x: baseTruckPosition(at: launchTime, truckWidth: truckSize.width, config: config)
+            x: truckPosition(
+                at: launchTime,
+                truckWidth: truckSize.width,
+                bumpTime: bumpTime,
+                config: config
+            )
                 + truckSize.width / 2,
             y: laneCenter + bobOffset + bumpPose.verticalOffset
         )
@@ -432,7 +587,6 @@ private final class OverlayView: NSView {
             truckRotation: bumpPose.rotation
         )
         let contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
-        let timelineStartTime = rootLayer.convertTime(CACurrentMediaTime(), from: nil)
         let launchDelay = launchTime * config.global.durationScale
         let animationBeginTime = timelineStartTime + launchDelay
 
@@ -451,6 +605,8 @@ private final class OverlayView: NSView {
             startRotation: bumpPose.rotation,
             embeddedWidth: CupArtwork.embeddedCrop.width * truckSize.width / TruckArtwork.uprightCrop.width,
             animationBeginTime: animationBeginTime,
+            launchTime: launchTime,
+            animationDuration: exitTime,
             contentsScale: contentsScale,
             config: config
         )
@@ -559,6 +715,8 @@ private final class OverlayView: NSView {
         startRotation: CGFloat,
         embeddedWidth: CGFloat,
         animationBeginTime: CFTimeInterval,
+        launchTime: TimeInterval,
+        animationDuration: TimeInterval,
         contentsScale: CGFloat,
         config: AnimationConfig
     ) {
@@ -566,24 +724,27 @@ private final class OverlayView: NSView {
             width: config.cup.size,
             height: config.cup.size * CupArtwork.crop.height / CupArtwork.crop.width
         )
-        let flightDuration = config.cup.flightDuration
+        let motion = CupMotion(
+            startPosition: startPosition,
+            startRotation: startRotation,
+            initialScale: embeddedWidth / config.cup.size,
+            cupSize: cupSize,
+            config: config
+        )
+        let totalDuration = motion.totalDuration
         let refreshRate = window?.screen?.maximumFramesPerSecond
             ?? NSScreen.main?.maximumFramesPerSecond
             ?? 60
-        let sampleCount = max(2, Int(ceil(flightDuration * Double(refreshRate))))
-        let positions = (0...sampleCount).map { sample -> CGPoint in
-            let time = flightDuration * Double(sample) / Double(sampleCount)
-            return CGPoint(
-                x: startPosition.x + config.cup.launchVelocityX * time,
-                y: startPosition.y - config.cup.launchVelocityY * time
-                    - 0.5 * config.cup.gravity * time * time
-            )
+        let sampleCount = max(2, Int(ceil(totalDuration * Double(refreshRate))))
+        let poses = (0...sampleCount).map { sample -> CupMotion.Pose in
+            let time = totalDuration * Double(sample) / Double(sampleCount)
+            return motion.pose(at: time)
         }
-        guard let splatPosition = positions.last else { return }
+        guard let finalPose = poses.last else { return }
 
         let cupLayer = CALayer()
         cupLayer.bounds = CGRect(origin: .zero, size: cupSize)
-        cupLayer.position = splatPosition
+        cupLayer.position = finalPose.position
         cupLayer.opacity = 0
 
         let embeddedArtwork = makeArtworkLayer(
@@ -602,30 +763,37 @@ private final class OverlayView: NSView {
         cupLayer.addSublayer(embeddedArtwork)
         cupLayer.addSublayer(splashArtwork)
         rootLayer.addSublayer(cupLayer)
+        cupHitLayer = cupLayer
 
-        let scaledFlightDuration = flightDuration * config.global.durationScale
+        let scaledTotalDuration = totalDuration * config.global.durationScale
 
         let trajectory = CAKeyframeAnimation(keyPath: "position")
-        trajectory.values = positions
-        trajectory.duration = scaledFlightDuration
+        trajectory.values = poses.map(\.position)
+        trajectory.duration = scaledTotalDuration
         trajectory.beginTime = animationBeginTime
         trajectory.calculationMode = .linear
         cupLayer.add(trajectory, forKey: "ballisticTrajectory")
 
-        let spin = CABasicAnimation(keyPath: "transform.rotation.z")
-        spin.fromValue = startRotation
-        spin.toValue = startRotation - config.cup.spinRate * flightDuration * .pi / 180
-        spin.duration = scaledFlightDuration
+        let spin = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        spin.values = poses.map(\.rotation)
+        spin.duration = scaledTotalDuration
         spin.beginTime = animationBeginTime
+        spin.calculationMode = .linear
         cupLayer.add(spin, forKey: "cupSpin")
 
-        let grow = CABasicAnimation(keyPath: "transform.scale")
-        grow.fromValue = embeddedWidth / config.cup.size
-        grow.toValue = 1
-        grow.duration = config.cup.morphDuration * config.global.durationScale
-        grow.beginTime = animationBeginTime
-        grow.timingFunction = CAMediaTimingFunction(controlPoints: 0.165, 0.84, 0.44, 1)
-        cupLayer.add(grow, forKey: "cupArtworkMorph")
+        let horizontalScale = CAKeyframeAnimation(keyPath: "transform.scale.x")
+        horizontalScale.values = poses.map(\.widthScale)
+        horizontalScale.duration = scaledTotalDuration
+        horizontalScale.beginTime = animationBeginTime
+        horizontalScale.calculationMode = .linear
+        cupLayer.add(horizontalScale, forKey: "cupHorizontalScale")
+
+        let verticalScale = CAKeyframeAnimation(keyPath: "transform.scale.y")
+        verticalScale.values = poses.map(\.heightScale)
+        verticalScale.duration = scaledTotalDuration
+        verticalScale.beginTime = animationBeginTime
+        verticalScale.calculationMode = .linear
+        cupLayer.add(verticalScale, forKey: "cupVerticalScale")
 
         let scaledMorphDuration = config.cup.morphDuration * config.global.durationScale
         animateArtworkCrossfade(
@@ -638,9 +806,22 @@ private final class OverlayView: NSView {
         let visibility = CABasicAnimation(keyPath: "opacity")
         visibility.fromValue = 1
         visibility.toValue = 1
-        visibility.duration = scaledFlightDuration
+        visibility.duration = scaledTotalDuration
         visibility.beginTime = animationBeginTime
-        cupLayer.add(visibility, forKey: "cupVisibilityUntilSplat")
+        cupLayer.add(visibility, forKey: "cupVisibilityThroughSlide")
+
+        spillAnimator = SpillAnimator(
+            view: self,
+            rootLayer: rootLayer,
+            below: cupLayer,
+            motion: motion,
+            launchBeginTime: animationBeginTime,
+            launchTime: launchTime,
+            animationDuration: animationDuration,
+            contentsScale: contentsScale,
+            config: config
+        )
+        spillAnimator?.start()
     }
 
     private func animateArtworkCrossfade(
@@ -706,15 +887,25 @@ private final class OverlayView: NSView {
         layer: CALayer,
         viewportWidth: CGFloat,
         truckWidth: CGFloat,
+        bumpTime: TimeInterval,
+        exitTime: TimeInterval,
+        timelineStartTime: CFTimeInterval,
         config: AnimationConfig
     ) {
-        let startX = -truckWidth
-        let entryDuration = config.timing.enterDuration
-        let entryEndX = startX + config.truck.cruiseSpeed * entryDuration
-        let endX = viewportWidth + truckWidth
-        let cruiseDuration = max(0, (endX - entryEndX) / config.truck.cruiseSpeed)
-        let totalDuration = entryDuration + cruiseDuration
-        let entryFraction = entryDuration / totalDuration
+        let refreshRate = window?.screen?.maximumFramesPerSecond
+            ?? NSScreen.main?.maximumFramesPerSecond
+            ?? 60
+        let sampleCount = max(2, Int(ceil(exitTime * Double(refreshRate))))
+        let positions = (0...sampleCount).map { sample -> CGFloat in
+            let elapsed = exitTime * Double(sample) / Double(sampleCount)
+            return truckPosition(
+                at: elapsed,
+                truckWidth: truckWidth,
+                bumpTime: bumpTime,
+                config: config
+            )
+        }
+        guard let endX = positions.last else { return }
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -722,14 +913,47 @@ private final class OverlayView: NSView {
         CATransaction.commit()
 
         let travel = CAKeyframeAnimation(keyPath: "position.x")
-        travel.values = [startX, entryEndX, endX]
-        travel.keyTimes = [0, NSNumber(value: entryFraction), 1]
-        travel.timingFunctions = [
-            CAMediaTimingFunction(controlPoints: 1 / 3, 0, 2 / 3, 2 / 3),
-            CAMediaTimingFunction(name: .linear),
-        ]
-        travel.duration = totalDuration * config.global.durationScale
+        travel.values = positions
+        travel.calculationMode = .linear
+        travel.beginTime = timelineStartTime
+        travel.duration = exitTime * config.global.durationScale
         layer.add(travel, forKey: "horizontalTravel")
+    }
+
+    private func animateRecoveryWobble(
+        layer: CALayer,
+        bumpTime: TimeInterval,
+        exitTime: TimeInterval,
+        timelineStartTime: CFTimeInterval,
+        config: AnimationConfig
+    ) {
+        guard config.wobble.amplitude != 0,
+              config.wobble.frequency > 0 else { return }
+
+        let recoveryTime = bumpTime + config.wobble.recoveryDelay
+        let duration = max(0, exitTime - recoveryTime)
+        guard duration > 0 else { return }
+
+        let refreshRate = window?.screen?.maximumFramesPerSecond
+            ?? NSScreen.main?.maximumFramesPerSecond
+            ?? 60
+        let sampleCount = max(2, Int(ceil(duration * Double(refreshRate))))
+        let rotations = (0...sampleCount).map { sample -> CGFloat in
+            let elapsed = duration * Double(sample) / Double(sampleCount)
+            let envelope = config.wobble.amplitude
+                * CGFloat(exp(-config.wobble.decay * elapsed))
+            let phase = elapsed * config.wobble.frequency * 2 * Double.pi
+            return -CGFloat(cos(phase)) * envelope * .pi / 180
+        }
+
+        let wobble = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        wobble.values = rotations
+        wobble.calculationMode = .linear
+        wobble.isAdditive = true
+        wobble.beginTime = timelineStartTime
+            + recoveryTime * config.global.durationScale
+        wobble.duration = duration * config.global.durationScale
+        layer.add(wobble, forKey: "recoveryWobble")
     }
 
     private func animateBob(layer: CALayer, config: AnimationConfig) {
@@ -757,44 +981,126 @@ private final class OverlayView: NSView {
         pivotLayer: CALayer,
         bannerLayer: CALayer,
         connectorLayer: CAShapeLayer,
+        timelineStartTime: CFTimeInterval,
+        bumpTime: TimeInterval,
+        exitTime: TimeInterval,
         config: AnimationConfig
     ) {
         guard config.banner.swayAmplitude != 0, config.banner.swayFrequency > 0 else { return }
 
-        let amplitude = config.banner.swayAmplitude
-        let duration = config.global.durationScale / config.banner.swayFrequency
-        let keyTimes: [NSNumber] = [0, 0.25, 0.5, 0.75, 1]
+        let refreshRate = window?.screen?.maximumFramesPerSecond
+            ?? NSScreen.main?.maximumFramesPerSecond
+            ?? 60
+        let sampleCount = max(2, Int(ceil(exitTime * Double(refreshRate))))
+        let samples = (0...sampleCount).map { sample -> (offset: CGFloat, rotation: CGFloat) in
+            let elapsed = exitTime * Double(sample) / Double(sampleCount)
+            let wobbleAge = elapsed - bumpTime - config.wobble.recoveryDelay
+            let wobbleEnvelope = wobbleAge < 0
+                ? 0
+                : config.wobble.amplitude * CGFloat(exp(-config.wobble.decay * wobbleAge))
+            let phase = elapsed * config.banner.swayFrequency * 2 * Double.pi
+            let offset = CGFloat(sin(phase))
+                * (config.banner.swayAmplitude + wobbleEnvelope)
+            let rotation = CGFloat(sin(phase + 0.45))
+                * config.banner.swayAmplitude / config.banner.width
+            return (offset, rotation)
+        }
 
         let verticalSway = CAKeyframeAnimation(keyPath: "transform.translation.y")
-        verticalSway.values = [0, -amplitude, 0, amplitude, 0]
-        verticalSway.keyTimes = keyTimes
-        verticalSway.timingFunctions = sineQuarterTimingFunctions
-        verticalSway.duration = duration
-        verticalSway.repeatCount = .infinity
+        verticalSway.values = samples.map(\.offset)
+        verticalSway.calculationMode = .linear
+        verticalSway.beginTime = timelineStartTime
+        verticalSway.duration = exitTime * config.global.durationScale
         pivotLayer.add(verticalSway, forKey: "bannerVerticalSway")
 
         let connectorSway = CAKeyframeAnimation(keyPath: "path")
-        connectorSway.values = [
-            makeConnectorPath(tetherLength: config.banner.tetherLength, verticalOffset: 0),
-            makeConnectorPath(tetherLength: config.banner.tetherLength, verticalOffset: -amplitude),
-            makeConnectorPath(tetherLength: config.banner.tetherLength, verticalOffset: 0),
-            makeConnectorPath(tetherLength: config.banner.tetherLength, verticalOffset: amplitude),
-            makeConnectorPath(tetherLength: config.banner.tetherLength, verticalOffset: 0),
-        ]
-        connectorSway.keyTimes = keyTimes
-        connectorSway.timingFunctions = sineQuarterTimingFunctions
-        connectorSway.duration = duration
-        connectorSway.repeatCount = .infinity
+        connectorSway.values = samples.map {
+            makeConnectorPath(
+                tetherLength: config.banner.tetherLength,
+                verticalOffset: $0.offset
+            )
+        }
+        connectorSway.calculationMode = .linear
+        connectorSway.beginTime = timelineStartTime
+        connectorSway.duration = exitTime * config.global.durationScale
         connectorLayer.add(connectorSway, forKey: "connectorSway")
 
-        let rotationAmplitude = amplitude / config.banner.width
         let rotationSway = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-        rotationSway.values = [0, rotationAmplitude, 0, -rotationAmplitude, 0]
-        rotationSway.keyTimes = keyTimes
-        rotationSway.timingFunctions = sineQuarterTimingFunctions
-        rotationSway.duration = duration
-        rotationSway.repeatCount = .infinity
+        rotationSway.values = samples.map(\.rotation)
+        rotationSway.calculationMode = .linear
+        rotationSway.beginTime = timelineStartTime
+        rotationSway.duration = exitTime * config.global.durationScale
         bannerLayer.add(rotationSway, forKey: "bannerRotationSway")
+    }
+
+    private func startInteractionTracking() {
+        interactionDisplayLink?.invalidate()
+        let displayLink = displayLink(
+            target: self,
+            selector: #selector(updateMousePassthrough(_:))
+        )
+        displayLink.add(to: .main, forMode: .common)
+        interactionDisplayLink = displayLink
+    }
+
+    private func scheduleCompletion(after duration: TimeInterval) {
+        completionTimer?.invalidate()
+        let timer = Timer(
+            timeInterval: duration,
+            target: self,
+            selector: #selector(animationDidComplete(_:)),
+            userInfo: nil,
+            repeats: false
+        )
+        RunLoop.main.add(timer, forMode: .common)
+        completionTimer = timer
+    }
+
+    @objc private func updateMousePassthrough(_ displayLink: CADisplayLink) {
+        guard let window else { return }
+        let screenPoint = NSEvent.mouseLocation
+        guard window.frame.contains(screenPoint) else {
+            window.ignoresMouseEvents = true
+            return
+        }
+
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        let localPoint = convert(windowPoint, from: nil)
+        window.ignoresMouseEvents = !containsVisibleContent(at: localPoint)
+    }
+
+    @objc private func animationDidComplete(_ timer: Timer) {
+        completionTimer = nil
+        dismissHandler()
+    }
+
+    private func containsVisibleContent(at point: CGPoint) -> Bool {
+        if let truckHitLayer,
+           presentationLayer(truckHitLayer, contains: point) {
+            return true
+        }
+        if let cupHitLayer,
+           presentationLayer(cupHitLayer, contains: point) {
+            return true
+        }
+        if let bannerHitLayer,
+           presentationLayer(bannerHitLayer, contains: point) {
+            return true
+        }
+        return spillAnimator?.containsVisibleLiquid(at: point) == true
+    }
+
+    private func presentationLayer(_ targetLayer: CALayer, contains point: CGPoint) -> Bool {
+        guard let rootLayer = layer,
+              let presentedRoot = rootLayer.presentation(),
+              let presentedTarget = targetLayer.presentation(),
+              !presentedTarget.isHidden,
+              presentedTarget.opacity > 0.01 else {
+            return false
+        }
+
+        let pointInTarget = presentedTarget.convert(point, from: presentedRoot)
+        return presentedTarget.bounds.contains(pointInTarget)
     }
 
     private var sineQuarterTimingFunctions: [CAMediaTimingFunction] {
@@ -820,7 +1126,7 @@ private final class OverlayView: NSView {
     }
 }
 
-private extension NSColor {
+extension NSColor {
     convenience init(hex: String) {
         let value = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         guard value.count == 6, let rgb = UInt32(value, radix: 16) else {

@@ -49,12 +49,23 @@ struct AnimationConfig: Decodable {
         let launchVelocityY: CGFloat
         let gravity: CGFloat
         let spinRate: CGFloat
+        let slideAccelerationX: CGFloat
+        let slideSpinAcceleration: CGFloat
+        let slideTargetHeightFraction: CGFloat
+        let compressionDuration: TimeInterval
+        let compressionWidthFraction: CGFloat
+        let compressionHeightFraction: CGFloat
+        let rimOffsetXFraction: CGFloat
+        let rimOffsetYFraction: CGFloat
     }
 
     struct Splash: Decodable {
         let duration: TimeInterval
         let radius: CGFloat
         let dropletCount: Int
+        let burstDurationFraction: CGFloat
+        let burstOvershoot: CGFloat
+        let dropletFallFraction: CGFloat
     }
 
     struct Liquid: Decodable {
@@ -64,6 +75,23 @@ struct AnimationConfig: Decodable {
         let dropletCount: Int
         let opacity: CGFloat
         let color: String
+        let gravityScale: CGFloat
+        let streamInitialSpeedScale: CGFloat
+        let streamSampleInterval: TimeInterval
+        let streamWideningDuration: TimeInterval
+        let streamBaseHalfWidthFraction: CGFloat
+        let streamWideningRate: CGFloat
+        let streamJitterFrequency: Double
+        let streamJitterFraction: CGFloat
+        let streamWidthVariation: CGFloat
+        let streamWidthVariationFrequency: Double
+        let dropletEmissionDelay: TimeInterval
+        let dropletEmissionInterval: TimeInterval
+        let dropletMinimumSpeedScale: CGFloat
+        let dropletSpeedVariation: CGFloat
+        let dropletHorizontalSpreadFraction: CGFloat
+        let dropletHorizontalDrift: CGFloat
+        let fadeDuration: TimeInterval
     }
 
     struct Wobble: Decodable {
@@ -71,6 +99,7 @@ struct AnimationConfig: Decodable {
         let frequency: Double
         let decay: Double
         let exitAcceleration: CGFloat
+        let recoveryDelay: TimeInterval
     }
 
     struct Global: Decodable {
