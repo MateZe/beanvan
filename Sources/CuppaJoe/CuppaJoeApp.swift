@@ -13,9 +13,15 @@ struct CuppaJoeApp: App {
 }
 
 private final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var overlayController: OverlayController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        _ = AppResources.shared
+
+        let resources = AppResources.shared
+        let overlayController = OverlayController(image: resources.images[0])
+        self.overlayController = overlayController
+        overlayController.show()
     }
 }
 
