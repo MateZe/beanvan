@@ -25,7 +25,13 @@
     "joltHeight": 50,
     "joltDuration": 0.36,
     "rotationAngle": 20,
-    "hangTime": 0.2
+    "hangTime": 0.2,
+    "riseFraction": 0.3,
+    "contactFraction": 0.72,
+    "landingOvershootFraction": 0.16,
+    "hangHeightLossFraction": 0.08,
+    "hangRotationLossFraction": 0.22,
+    "landingRotationOvershootFraction": 0.3
   },
   "cup": {
     "size": 150,

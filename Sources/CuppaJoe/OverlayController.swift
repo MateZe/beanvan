@@ -36,7 +36,7 @@ final class OverlayController {
 
         self.window = window
         overlayView.animate(
-            image: resources.images[.truckUpright],
+            images: resources.images,
             config: resources.animationConfig
         )
     }
@@ -50,8 +50,20 @@ final class OverlayController {
 @MainActor
 private final class OverlayView: NSView {
     private enum TruckArtwork {
-        // Pixel crop used by the browser prototype for the upright truck artwork.
-        static let crop = CGRect(x: 68, y: 105, width: 365, height: 280)
+        static let uprightCrop = CGRect(x: 68, y: 105, width: 365, height: 280)
+        static let tippedCrop = CGRect(x: 63, y: 105, width: 372, height: 290)
+
+        // These two regions retain the truck bed and cab while removing the
+        // tipped cup, which becomes its own animated layer at this beat.
+        static let tippedVisibleRegions: [[CGPoint]] = [
+            [CGPoint(x: 63, y: 249), CGPoint(x: 255, y: 274), CGPoint(x: 435, y: 265), CGPoint(x: 435, y: 395), CGPoint(x: 63, y: 395)],
+            [CGPoint(x: 280, y: 135), CGPoint(x: 435, y: 140), CGPoint(x: 435, y: 395), CGPoint(x: 245, y: 395), CGPoint(x: 258, y: 270)],
+        ]
+    }
+
+    private enum CupArtwork {
+        static let crop = CGRect(x: 108, y: 91, width: 315, height: 333)
+        static let embeddedCrop = CGRect(x: 105, y: 122, width: 139, height: 180)
     }
 
     override init(frame frameRect: NSRect) {
@@ -66,38 +78,59 @@ private final class OverlayView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func animate(image: NSImage, config: AnimationConfig) {
+    func animate(images: ImageCache, config: AnimationConfig) {
         guard
             let rootLayer = layer,
-            let imageRepresentation = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
-            let croppedImage = imageRepresentation.cropping(to: TruckArtwork.crop)
+            let uprightImage = images[.truckUpright].cgImage(forProposedRect: nil, context: nil, hints: nil),
+            let tippedImage = images[.truckTipped].cgImage(forProposedRect: nil, context: nil, hints: nil),
+            let cupImage = images[.cup].cgImage(forProposedRect: nil, context: nil, hints: nil),
+            let croppedUprightImage = uprightImage.cropping(to: TruckArtwork.uprightCrop),
+            let croppedTippedImage = tippedImage.cropping(to: TruckArtwork.tippedCrop),
+            let croppedCupImage = cupImage.cropping(to: CupArtwork.crop),
+            let croppedEmbeddedCupImage = uprightImage.cropping(to: CupArtwork.embeddedCrop)
         else { return }
 
         rootLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
 
         let truckSize = CGSize(
             width: config.truck.size,
-            height: config.truck.size * TruckArtwork.crop.height / TruckArtwork.crop.width
+            height: config.truck.size * TruckArtwork.uprightCrop.height / TruckArtwork.uprightCrop.width
         )
         let laneCenter = bounds.height * (1 - config.truck.laneHeight / 100)
         let travelLayer = CALayer()
         let bobLayer = CALayer()
-        let truckLayer = makeTruckLayer(
-            image: croppedImage,
-            size: truckSize,
+        let bumpLayer = CALayer()
+        let tippedSize = CGSize(
+            width: config.truck.size,
+            height: config.truck.size * TruckArtwork.tippedCrop.height / TruckArtwork.tippedCrop.width
+        )
+        let truckLayers = makeTruckLayers(
+            uprightImage: croppedUprightImage,
+            tippedImage: croppedTippedImage,
+            uprightSize: truckSize,
+            tippedSize: tippedSize,
             contentsScale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         )
+        let truckLayer = truckLayers.container
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         travelLayer.position = CGPoint(x: -truckSize.width, y: laneCenter)
         bobLayer.position = .zero
+        bumpLayer.position = .zero
         truckLayer.position = CGPoint(x: truckSize.width / 2, y: 0)
         rootLayer.addSublayer(travelLayer)
         travelLayer.addSublayer(bobLayer)
-        addBanner(to: bobLayer, config: config)
-        bobLayer.addSublayer(truckLayer)
+        bobLayer.addSublayer(bumpLayer)
+        addBanner(to: bumpLayer, config: config)
+        bumpLayer.addSublayer(truckLayer)
         CATransaction.commit()
+
+        let bumpTime = bumpTimeForViewport(
+            viewportWidth: bounds.width,
+            truckWidth: truckSize.width,
+            config: config
+        )
 
         animateHorizontalTravel(
             layer: travelLayer,
@@ -106,19 +139,67 @@ private final class OverlayView: NSView {
             config: config
         )
         animateBob(layer: bobLayer, config: config)
+        animateBump(
+            assemblyLayer: bumpLayer,
+            truckLayer: truckLayer,
+            beginTime: bumpTime,
+            config: config
+        )
+        animateTipAndCup(
+            rootLayer: rootLayer,
+            uprightTruckLayer: truckLayers.upright,
+            tippedTruckLayer: truckLayers.tipped,
+            cupImage: croppedCupImage,
+            embeddedCupImage: croppedEmbeddedCupImage,
+            truckSize: truckSize,
+            laneCenter: laneCenter,
+            bumpTime: bumpTime,
+            config: config
+        )
     }
 
-    private func makeTruckLayer(
+    private func makeTruckLayers(
+        uprightImage: CGImage,
+        tippedImage: CGImage,
+        uprightSize: CGSize,
+        tippedSize: CGSize,
+        contentsScale: CGFloat
+    ) -> (container: CALayer, upright: CALayer, tipped: CALayer) {
+        let container = CALayer()
+        container.bounds = CGRect(origin: .zero, size: uprightSize)
+
+        let upright = makeArtworkLayer(
+            image: uprightImage,
+            size: uprightSize,
+            contentsScale: contentsScale
+        )
+        upright.position = CGPoint(x: uprightSize.width / 2, y: uprightSize.height / 2)
+
+        let tipped = makeArtworkLayer(
+            image: tippedImage,
+            size: tippedSize,
+            contentsScale: contentsScale
+        )
+        tipped.position = CGPoint(x: uprightSize.width / 2, y: uprightSize.height / 2)
+        tipped.mask = makeTippedTruckMask(size: tippedSize)
+        tipped.opacity = 0
+
+        container.addSublayer(upright)
+        container.addSublayer(tipped)
+        return (container, upright, tipped)
+    }
+
+    private func makeArtworkLayer(
         image: CGImage,
         size: CGSize,
         contentsScale: CGFloat
     ) -> CALayer {
-        let truckLayer = CALayer()
-        truckLayer.bounds = CGRect(origin: .zero, size: size)
-        truckLayer.contents = image
-        truckLayer.contentsGravity = .resizeAspect
-        truckLayer.contentsScale = contentsScale
-        return truckLayer
+        let layer = CALayer()
+        layer.bounds = CGRect(origin: .zero, size: size)
+        layer.contents = image
+        layer.contentsGravity = .resizeAspect
+        layer.contentsScale = contentsScale
+        return layer
     }
 
     private func addBanner(to truckAssembly: CALayer, config: AnimationConfig) {
@@ -221,6 +302,404 @@ private final class OverlayView: NSView {
         path.move(to: .zero)
         path.addLine(to: CGPoint(x: -tetherLength, y: verticalOffset))
         return path
+    }
+
+    private func bumpTimeForViewport(
+        viewportWidth: CGFloat,
+        truckWidth: CGFloat,
+        config: AnimationConfig
+    ) -> TimeInterval {
+        let targetLeft = viewportWidth * config.bump.position / 100 - truckWidth / 2
+        let entryEndLeft = -truckWidth + config.truck.cruiseSpeed * config.timing.enterDuration
+
+        if targetLeft >= entryEndLeft {
+            return (targetLeft + truckWidth) / config.truck.cruiseSpeed
+        }
+
+        var lowerTime: TimeInterval = 0
+        var upperTime = config.timing.enterDuration
+        for _ in 0..<16 {
+            let middleTime = (lowerTime + upperTime) / 2
+            if baseTruckPosition(at: middleTime, truckWidth: truckWidth, config: config) < targetLeft {
+                lowerTime = middleTime
+            } else {
+                upperTime = middleTime
+            }
+        }
+        return (lowerTime + upperTime) / 2
+    }
+
+    private func baseTruckPosition(
+        at elapsed: TimeInterval,
+        truckWidth: CGFloat,
+        config: AnimationConfig
+    ) -> CGFloat {
+        let enterDuration = config.timing.enterDuration
+        guard elapsed < enterDuration else {
+            return -truckWidth + config.truck.cruiseSpeed * elapsed
+        }
+
+        let progress = max(0, min(1, elapsed / enterDuration))
+        let easedProgress = -(progress * progress * progress) + 2 * progress * progress
+        return -truckWidth + config.truck.cruiseSpeed * enterDuration * easedProgress
+    }
+
+    private func animateBump(
+        assemblyLayer: CALayer,
+        truckLayer: CALayer,
+        beginTime: TimeInterval,
+        config: AnimationConfig
+    ) {
+        let bump = config.bump
+        let riseDuration = bump.joltDuration * bump.riseFraction
+        let fallDuration = bump.joltDuration * (1 - bump.riseFraction)
+        let contactTime = riseDuration + bump.hangTime + fallDuration * bump.contactFraction
+        let totalDuration = bump.joltDuration + bump.hangTime
+        guard totalDuration > 0 else { return }
+
+        var keyTimes: [NSNumber] = [0, NSNumber(value: riseDuration / totalDuration)]
+        var verticalValues: [CGFloat] = [0, bump.joltHeight]
+        var rotationValues: [CGFloat] = [0, -bump.rotationAngle * .pi / 180]
+        if bump.hangTime > 0 {
+            keyTimes.append(NSNumber(value: (riseDuration + bump.hangTime) / totalDuration))
+            verticalValues.append(bump.joltHeight * (1 - bump.hangHeightLossFraction))
+            rotationValues.append(-bump.rotationAngle * .pi / 180 * (1 - bump.hangRotationLossFraction))
+        }
+        keyTimes.append(contentsOf: [NSNumber(value: contactTime / totalDuration), 1])
+        verticalValues.append(contentsOf: [-bump.joltHeight * bump.landingOvershootFraction, 0])
+
+        let angle = bump.rotationAngle * .pi / 180
+        rotationValues.append(contentsOf: [angle * bump.landingRotationOvershootFraction, 0])
+        let animationBeginTime = assemblyLayer.convertTime(CACurrentMediaTime(), from: nil)
+            + beginTime * config.global.durationScale
+        let scaledDuration = totalDuration * config.global.durationScale
+
+        let verticalJolt = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        verticalJolt.values = verticalValues
+        verticalJolt.keyTimes = keyTimes
+        verticalJolt.timingFunctions = bumpTimingFunctions(hasHangTime: bump.hangTime > 0)
+        verticalJolt.beginTime = animationBeginTime
+        verticalJolt.duration = scaledDuration
+        assemblyLayer.add(verticalJolt, forKey: "bumpJolt")
+
+        let noseDown = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        noseDown.values = rotationValues
+        noseDown.keyTimes = keyTimes
+        noseDown.timingFunctions = bumpTimingFunctions(hasHangTime: bump.hangTime > 0)
+        noseDown.beginTime = animationBeginTime
+        noseDown.duration = scaledDuration
+        truckLayer.add(noseDown, forKey: "bumpRotation")
+    }
+
+    private func bumpTimingFunctions(hasHangTime: Bool) -> [CAMediaTimingFunction] {
+        var timingFunctions = [
+            CAMediaTimingFunction(controlPoints: 0.165, 0.84, 0.44, 1),
+        ]
+        if hasHangTime {
+            timingFunctions.append(CAMediaTimingFunction(name: .linear))
+        }
+        timingFunctions.append(contentsOf: [
+            CAMediaTimingFunction(controlPoints: 1 / 3, 0, 2 / 3, 0),
+            CAMediaTimingFunction(name: .easeOut),
+        ])
+        return timingFunctions
+    }
+
+    private func animateTipAndCup(
+        rootLayer: CALayer,
+        uprightTruckLayer: CALayer,
+        tippedTruckLayer: CALayer,
+        cupImage: CGImage,
+        embeddedCupImage: CGImage,
+        truckSize: CGSize,
+        laneCenter: CGFloat,
+        bumpTime: TimeInterval,
+        config: AnimationConfig
+    ) {
+        let launchTime = bumpTime + config.timing.tipDelay
+        let eventAge = config.timing.tipDelay
+        let bumpPose = bumpPose(at: eventAge, config: config)
+        let bobOffset = -sin(launchTime * config.truck.bobFrequency * 2 * .pi)
+            * config.truck.bobAmplitude
+        let truckCenter = CGPoint(
+            x: baseTruckPosition(at: launchTime, truckWidth: truckSize.width, config: config)
+                + truckSize.width / 2,
+            y: laneCenter + bobOffset + bumpPose.verticalOffset
+        )
+        let embeddedCupCenter = embeddedCupCenter(
+            truckCenter: truckCenter,
+            truckSize: truckSize,
+            truckRotation: bumpPose.rotation
+        )
+        let contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        let timelineStartTime = rootLayer.convertTime(CACurrentMediaTime(), from: nil)
+        let launchDelay = launchTime * config.global.durationScale
+        let animationBeginTime = timelineStartTime + launchDelay
+
+        animateTruckTip(
+            uprightLayer: uprightTruckLayer,
+            tippedLayer: tippedTruckLayer,
+            timelineStartTime: timelineStartTime,
+            launchDelay: launchDelay
+        )
+
+        addBallisticCup(
+            to: rootLayer,
+            image: cupImage,
+            embeddedImage: embeddedCupImage,
+            startPosition: embeddedCupCenter,
+            startRotation: bumpPose.rotation,
+            embeddedWidth: CupArtwork.embeddedCrop.width * truckSize.width / TruckArtwork.uprightCrop.width,
+            animationBeginTime: animationBeginTime,
+            contentsScale: contentsScale,
+            config: config
+        )
+    }
+
+    private func animateTruckTip(
+        uprightLayer: CALayer,
+        tippedLayer: CALayer,
+        timelineStartTime: CFTimeInterval,
+        launchDelay: CFTimeInterval
+    ) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        uprightLayer.opacity = 0
+        tippedLayer.opacity = 1
+        CATransaction.commit()
+
+        // Hold both presentation values from launch until the exact tip frame.
+        // This avoids relying on backwards fill for a delayed animation, which can
+        // expose the final model values before the animation begins.
+        let hideUpright = CAKeyframeAnimation(keyPath: "opacity")
+        hideUpright.values = [1, 0]
+        hideUpright.keyTimes = [0, 1]
+        hideUpright.calculationMode = .discrete
+        hideUpright.beginTime = timelineStartTime
+        hideUpright.duration = launchDelay
+        uprightLayer.add(hideUpright, forKey: "hideEmbeddedCup")
+
+        let showTipped = CAKeyframeAnimation(keyPath: "opacity")
+        showTipped.values = [0, 1]
+        showTipped.keyTimes = [0, 1]
+        showTipped.calculationMode = .discrete
+        showTipped.beginTime = timelineStartTime
+        showTipped.duration = launchDelay
+        tippedLayer.add(showTipped, forKey: "showTippedTruck")
+    }
+
+    private func bumpPose(
+        at eventAge: TimeInterval,
+        config: AnimationConfig
+    ) -> (verticalOffset: CGFloat, rotation: CGFloat) {
+        let bump = config.bump
+        let riseDuration = bump.joltDuration * bump.riseFraction
+        let fallDuration = bump.joltDuration * (1 - bump.riseFraction)
+        let angle = bump.rotationAngle * .pi / 180
+
+        if eventAge < riseDuration {
+            let progress = max(0, eventAge / riseDuration)
+            let snap = 1 - pow(1 - progress, 4)
+            return (bump.joltHeight * snap, -angle * snap)
+        }
+
+        if eventAge < riseDuration + bump.hangTime {
+            let progress = bump.hangTime == 0 ? 1 : (eventAge - riseDuration) / bump.hangTime
+            return (
+                bump.joltHeight * (1 - bump.hangHeightLossFraction * progress),
+                -angle * (1 - bump.hangRotationLossFraction * progress)
+            )
+        }
+
+        let fallAge = eventAge - riseDuration - bump.hangTime
+        guard fallAge < fallDuration else { return (0, 0) }
+        let progress = fallAge / fallDuration
+        let contactPoint = bump.contactFraction
+        if progress < contactPoint {
+            let fallProgress = pow(progress / contactPoint, 3)
+            let heightAtFall = bump.joltHeight * (1 - bump.hangHeightLossFraction)
+            let rotationAtFall = angle * (1 - bump.hangRotationLossFraction)
+            return (
+                heightAtFall - (heightAtFall + bump.joltHeight * bump.landingOvershootFraction) * fallProgress,
+                -rotationAtFall
+                    + (rotationAtFall + angle * bump.landingRotationOvershootFraction) * fallProgress
+            )
+        }
+
+        let settleProgress = (progress - contactPoint) / (1 - contactPoint)
+        return (
+            -bump.joltHeight * bump.landingOvershootFraction * (1 - settleProgress),
+            angle * bump.landingRotationOvershootFraction * (1 - settleProgress)
+        )
+    }
+
+    private func embeddedCupCenter(
+        truckCenter: CGPoint,
+        truckSize: CGSize,
+        truckRotation: CGFloat
+    ) -> CGPoint {
+        let scale = truckSize.width / TruckArtwork.uprightCrop.width
+        let localX = -truckSize.width / 2
+            + (CupArtwork.embeddedCrop.midX - TruckArtwork.uprightCrop.minX) * scale
+        let localYFromTop = -truckSize.height / 2
+            + (CupArtwork.embeddedCrop.midY - TruckArtwork.uprightCrop.minY) * scale
+        let localY = -localYFromTop
+
+        return CGPoint(
+            x: truckCenter.x + localX * cos(truckRotation) - localY * sin(truckRotation),
+            y: truckCenter.y + localX * sin(truckRotation) + localY * cos(truckRotation)
+        )
+    }
+
+    private func addBallisticCup(
+        to rootLayer: CALayer,
+        image: CGImage,
+        embeddedImage: CGImage,
+        startPosition: CGPoint,
+        startRotation: CGFloat,
+        embeddedWidth: CGFloat,
+        animationBeginTime: CFTimeInterval,
+        contentsScale: CGFloat,
+        config: AnimationConfig
+    ) {
+        let cupSize = CGSize(
+            width: config.cup.size,
+            height: config.cup.size * CupArtwork.crop.height / CupArtwork.crop.width
+        )
+        let flightDuration = config.cup.flightDuration
+        let refreshRate = window?.screen?.maximumFramesPerSecond
+            ?? NSScreen.main?.maximumFramesPerSecond
+            ?? 60
+        let sampleCount = max(2, Int(ceil(flightDuration * Double(refreshRate))))
+        let positions = (0...sampleCount).map { sample -> CGPoint in
+            let time = flightDuration * Double(sample) / Double(sampleCount)
+            return CGPoint(
+                x: startPosition.x + config.cup.launchVelocityX * time,
+                y: startPosition.y - config.cup.launchVelocityY * time
+                    - 0.5 * config.cup.gravity * time * time
+            )
+        }
+        guard let splatPosition = positions.last else { return }
+
+        let cupLayer = CALayer()
+        cupLayer.bounds = CGRect(origin: .zero, size: cupSize)
+        cupLayer.position = splatPosition
+        cupLayer.opacity = 0
+
+        let embeddedArtwork = makeArtworkLayer(
+            image: embeddedImage,
+            size: cupSize,
+            contentsScale: contentsScale
+        )
+        embeddedArtwork.position = CGPoint(x: cupSize.width / 2, y: cupSize.height / 2)
+        let splashArtwork = makeArtworkLayer(
+            image: image,
+            size: cupSize,
+            contentsScale: contentsScale
+        )
+        splashArtwork.position = CGPoint(x: cupSize.width / 2, y: cupSize.height / 2)
+        splashArtwork.opacity = 0
+        cupLayer.addSublayer(embeddedArtwork)
+        cupLayer.addSublayer(splashArtwork)
+        rootLayer.addSublayer(cupLayer)
+
+        let scaledFlightDuration = flightDuration * config.global.durationScale
+
+        let trajectory = CAKeyframeAnimation(keyPath: "position")
+        trajectory.values = positions
+        trajectory.duration = scaledFlightDuration
+        trajectory.beginTime = animationBeginTime
+        trajectory.calculationMode = .linear
+        cupLayer.add(trajectory, forKey: "ballisticTrajectory")
+
+        let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+        spin.fromValue = startRotation
+        spin.toValue = startRotation - config.cup.spinRate * flightDuration * .pi / 180
+        spin.duration = scaledFlightDuration
+        spin.beginTime = animationBeginTime
+        cupLayer.add(spin, forKey: "cupSpin")
+
+        let grow = CABasicAnimation(keyPath: "transform.scale")
+        grow.fromValue = embeddedWidth / config.cup.size
+        grow.toValue = 1
+        grow.duration = config.cup.morphDuration * config.global.durationScale
+        grow.beginTime = animationBeginTime
+        grow.timingFunction = CAMediaTimingFunction(controlPoints: 0.165, 0.84, 0.44, 1)
+        cupLayer.add(grow, forKey: "cupArtworkMorph")
+
+        let scaledMorphDuration = config.cup.morphDuration * config.global.durationScale
+        animateArtworkCrossfade(
+            from: embeddedArtwork,
+            to: splashArtwork,
+            beginTime: animationBeginTime,
+            duration: scaledMorphDuration
+        )
+
+        let visibility = CABasicAnimation(keyPath: "opacity")
+        visibility.fromValue = 1
+        visibility.toValue = 1
+        visibility.duration = scaledFlightDuration
+        visibility.beginTime = animationBeginTime
+        cupLayer.add(visibility, forKey: "cupVisibilityUntilSplat")
+    }
+
+    private func animateArtworkCrossfade(
+        from sourceLayer: CALayer,
+        to destinationLayer: CALayer,
+        beginTime: CFTimeInterval,
+        duration: CFTimeInterval
+    ) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        sourceLayer.opacity = 0
+        destinationLayer.opacity = 1
+        CATransaction.commit()
+
+        let timingFunction = CAMediaTimingFunction(controlPoints: 0.165, 0.84, 0.44, 1)
+        let fadeOut = CABasicAnimation(keyPath: "opacity")
+        fadeOut.fromValue = 1
+        fadeOut.toValue = 0
+        fadeOut.beginTime = beginTime
+        fadeOut.duration = duration
+        fadeOut.fillMode = .backwards
+        fadeOut.timingFunction = timingFunction
+        sourceLayer.add(fadeOut, forKey: "fadeEmbeddedArtwork")
+
+        let fadeIn = CABasicAnimation(keyPath: "opacity")
+        fadeIn.fromValue = 0
+        fadeIn.toValue = 1
+        fadeIn.beginTime = beginTime
+        fadeIn.duration = duration
+        fadeIn.fillMode = .backwards
+        fadeIn.timingFunction = timingFunction
+        destinationLayer.add(fadeIn, forKey: "fadeSplashArtwork")
+    }
+
+    private func makeTippedTruckMask(size: CGSize) -> CAShapeLayer {
+        let scale = size.width / TruckArtwork.tippedCrop.width
+        let path = CGMutablePath()
+
+        for region in TruckArtwork.tippedVisibleRegions {
+            guard let firstPoint = region.first else { continue }
+            let convertedFirstPoint = CGPoint(
+                x: (firstPoint.x - TruckArtwork.tippedCrop.minX) * scale,
+                y: size.height - (firstPoint.y - TruckArtwork.tippedCrop.minY) * scale
+            )
+            path.move(to: convertedFirstPoint)
+            for point in region.dropFirst() {
+                path.addLine(to: CGPoint(
+                    x: (point.x - TruckArtwork.tippedCrop.minX) * scale,
+                    y: size.height - (point.y - TruckArtwork.tippedCrop.minY) * scale
+                ))
+            }
+            path.closeSubpath()
+        }
+
+        let mask = CAShapeLayer()
+        mask.frame = CGRect(origin: .zero, size: size)
+        mask.path = path
+        mask.fillColor = NSColor.white.cgColor
+        return mask
     }
 
     private func animateHorizontalTravel(

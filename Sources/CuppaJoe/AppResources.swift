@@ -32,6 +32,12 @@ struct AnimationConfig: Decodable {
         let joltDuration: TimeInterval
         let rotationAngle: CGFloat
         let hangTime: TimeInterval
+        let riseFraction: CGFloat
+        let contactFraction: CGFloat
+        let landingOvershootFraction: CGFloat
+        let hangHeightLossFraction: CGFloat
+        let hangRotationLossFraction: CGFloat
+        let landingRotationOvershootFraction: CGFloat
     }
 
     struct Cup: Decodable {
