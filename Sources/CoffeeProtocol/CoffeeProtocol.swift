@@ -3,6 +3,15 @@ import Foundation
 
 public typealias EpochMilliseconds = Int64
 
+public enum TeamPhrase {
+    public static func shortHash(for phrase: String) -> String {
+        SHA256.hash(data: keyMaterial(for: phrase))
+            .prefix(6)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+}
+
 public enum CoffeeProtocolError: Error, Equatable, Sendable {
     case tooManyScheduleEntries
 }
@@ -162,6 +171,16 @@ public struct Accept: Codable, Equatable, Sendable {
     }
 }
 
+public struct ProposalCancellation: Codable, Equatable, Sendable {
+    public let proposalID: UUID
+    public let proposer: UUID
+
+    public init(proposalID: UUID, proposer: UUID) {
+        self.proposalID = proposalID
+        self.proposer = proposer
+    }
+}
+
 public func quorumMet(proposal: Proposal, accepts: [Accept], threshold: Int) -> Bool {
     var participants = Set([proposal.proposer])
     for accept in accepts where accept.proposalID == proposal.id {
@@ -189,6 +208,7 @@ public enum Payload: Codable, Equatable, Sendable {
     case schedule(Schedule)
     case proposal(Proposal)
     case accept(Accept)
+    case proposalCancellation(ProposalCancellation)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -199,6 +219,7 @@ public enum Payload: Codable, Equatable, Sendable {
         case schedule
         case proposal
         case accept
+        case proposalCancellation
     }
 
     public init(from decoder: any Decoder) throws {
@@ -210,6 +231,10 @@ public enum Payload: Codable, Equatable, Sendable {
             self = .proposal(try container.decode(Proposal.self, forKey: .value))
         case .accept:
             self = .accept(try container.decode(Accept.self, forKey: .value))
+        case .proposalCancellation:
+            self = .proposalCancellation(
+                try container.decode(ProposalCancellation.self, forKey: .value)
+            )
         }
     }
 
@@ -225,6 +250,9 @@ public enum Payload: Codable, Equatable, Sendable {
         case let .accept(accept):
             try container.encode(Kind.accept, forKey: .type)
             try container.encode(accept, forKey: .value)
+        case let .proposalCancellation(cancellation):
+            try container.encode(Kind.proposalCancellation, forKey: .type)
+            try container.encode(cancellation, forKey: .value)
         }
     }
 }
@@ -301,14 +329,15 @@ public struct Envelope: Codable, Equatable, Sendable {
     }
 
     private static func key(for teamPhrase: String) -> SymmetricKey {
-        let material: Data
-        if teamPhrase.isEmpty {
-            material = Data("CuppaJoe CoffeeProtocol default key v1".utf8)
-        } else {
-            material = Data("CuppaJoe CoffeeProtocol team phrase v1\u{0}\(teamPhrase)".utf8)
-        }
-        return SymmetricKey(data: SHA256.hash(data: material))
+        SymmetricKey(data: SHA256.hash(data: keyMaterial(for: teamPhrase)))
     }
+}
+
+private func keyMaterial(for teamPhrase: String) -> Data {
+    if teamPhrase.isEmpty {
+        return Data("CuppaJoe CoffeeProtocol default key v1".utf8)
+    }
+    return Data("CuppaJoe CoffeeProtocol team phrase v1\u{0}\(teamPhrase)".utf8)
 }
 
 private struct UnsignedEnvelope: Codable {

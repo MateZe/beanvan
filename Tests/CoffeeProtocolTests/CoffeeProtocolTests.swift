@@ -48,6 +48,9 @@ struct CoffeeProtocolTests {
         #expect(decoded == envelope)
         #expect(decoded.verify(now: 123))
         #expect(try decoded.canonicalJSONData() == envelope.canonicalJSONData())
+        #expect(TeamPhrase.shortHash(for: "") == "5cd3457e5892")
+        #expect(TeamPhrase.shortHash(for: "beans").count == 12)
+        #expect(TeamPhrase.shortHash(for: "beans") != TeamPhrase.shortHash(for: "tea"))
     }
 
     @Test func scheduleRejectsMoreThanThreeEntries() {
@@ -109,6 +112,21 @@ struct CoffeeProtocolTests {
         let proposal = Proposal(id: UUID(), proposer: senderA, createdAt: 100, expiresAt: 200)
         #expect(!isExpired(proposal, at: 199))
         #expect(isExpired(proposal, at: 200))
+    }
+
+    @Test func proposalCancellationRoundTripsAndAuthenticates() throws {
+        let cancellation = ProposalCancellation(proposalID: UUID(), proposer: senderA)
+        let envelope = try Envelope.signed(
+            senderID: senderA,
+            senderName: "Alice",
+            timestamp: 123,
+            payload: .proposalCancellation(cancellation),
+            teamPhrase: "beans"
+        )
+
+        let decoded = try JSONDecoder().decode(Envelope.self, from: envelope.canonicalJSONData())
+        #expect(decoded == envelope)
+        #expect(decoded.verify(teamPhrase: "beans", now: 123))
     }
 
     @Test func cooldownRequiresTheFullIntervalAndRejectsClockRollback() {

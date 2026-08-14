@@ -5,6 +5,7 @@ struct AppInstance: Sendable {
 
     let displayName: String
     let requestedPort: UInt16
+    let teamPhrase: String
     let stateDirectory: URL
     let id: UUID
 
@@ -33,6 +34,7 @@ struct AppInstance: Sendable {
         return AppInstance(
             displayName: options.displayName,
             requestedPort: options.port,
+            teamPhrase: options.teamPhrase,
             stateDirectory: stateDirectory,
             id: id
         )
@@ -57,15 +59,17 @@ struct AppInstance: Sendable {
 struct LaunchOptions: Equatable, Sendable {
     let displayName: String
     let port: UInt16
+    let teamPhrase: String
 
     static func parse(arguments: [String], defaultName: String) throws -> LaunchOptions {
         var displayName = defaultName
         var port: UInt16 = 0
+        var teamPhrase = ""
         var index = 0
 
         while index < arguments.count {
             let argument = arguments[index]
-            guard argument == "--name" || argument == "--port" else {
+            guard argument == "--name" || argument == "--port" || argument == "--phrase" else {
                 throw AppInstanceError.unknownArgument(argument)
             }
             guard index + 1 < arguments.count else {
@@ -75,11 +79,13 @@ struct LaunchOptions: Equatable, Sendable {
             let value = arguments[index + 1]
             if argument == "--name" {
                 displayName = value
-            } else {
+            } else if argument == "--port" {
                 guard let parsedPort = UInt16(value) else {
                     throw AppInstanceError.invalidPort(value)
                 }
                 port = parsedPort
+            } else {
+                teamPhrase = value
             }
             index += 2
         }
@@ -94,7 +100,7 @@ struct LaunchOptions: Equatable, Sendable {
             throw AppInstanceError.invalidName("Display name must be at most 63 UTF-8 bytes")
         }
 
-        return LaunchOptions(displayName: displayName, port: port)
+        return LaunchOptions(displayName: displayName, port: port, teamPhrase: teamPhrase)
     }
 }
 

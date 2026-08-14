@@ -13,6 +13,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "CuppaJoe",
+            dependencies: ["CoffeeProtocol"],
             resources: [
                 .process("Resources"),
             ]
