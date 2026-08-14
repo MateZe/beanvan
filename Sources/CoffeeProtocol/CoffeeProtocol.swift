@@ -14,6 +14,8 @@ public enum TeamPhrase {
 
 public enum CoffeeProtocolError: Error, Equatable, Sendable {
     case tooManyScheduleEntries
+    case duplicateScheduleEntryID
+    case invalidScheduleTime
 }
 
 public enum Weekday: Int, CaseIterable, Codable, Comparable, Sendable {
@@ -95,9 +97,7 @@ public struct Schedule: Codable, Equatable, Sendable {
     public let lastModified: EpochMilliseconds
 
     public init(entries: [ScheduleEntry], lastModified: EpochMilliseconds) throws {
-        guard entries.count <= Self.maximumEntryCount else {
-            throw CoffeeProtocolError.tooManyScheduleEntries
-        }
+        try Self.validate(entries)
         self.entries = entries
         self.lastModified = lastModified
     }
@@ -110,15 +110,43 @@ public struct Schedule: Codable, Equatable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let entries = try container.decode([ScheduleEntry].self, forKey: .entries)
-        guard entries.count <= Self.maximumEntryCount else {
+        do {
+            try Self.validate(entries)
+        } catch CoffeeProtocolError.tooManyScheduleEntries {
             throw DecodingError.dataCorruptedError(
                 forKey: .entries,
                 in: container,
                 debugDescription: "A schedule may contain at most \(Self.maximumEntryCount) entries"
             )
+        } catch CoffeeProtocolError.duplicateScheduleEntryID {
+            throw DecodingError.dataCorruptedError(
+                forKey: .entries,
+                in: container,
+                debugDescription: "Schedule entry IDs must be unique"
+            )
+        } catch {
+            throw DecodingError.dataCorruptedError(
+                forKey: .entries,
+                in: container,
+                debugDescription: "Schedule times must use hours 0 through 23 and minutes 0 through 59"
+            )
         }
         self.entries = entries
         lastModified = try container.decode(EpochMilliseconds.self, forKey: .lastModified)
+    }
+
+    private static func validate(_ entries: [ScheduleEntry]) throws {
+        guard entries.count <= maximumEntryCount else {
+            throw CoffeeProtocolError.tooManyScheduleEntries
+        }
+        guard Set(entries.map(\.id)).count == entries.count else {
+            throw CoffeeProtocolError.duplicateScheduleEntryID
+        }
+        guard entries.allSatisfy({
+            (0...23).contains($0.time.hour) && (0...59).contains($0.time.minute)
+        }) else {
+            throw CoffeeProtocolError.invalidScheduleTime
+        }
     }
 }
 
@@ -259,6 +287,8 @@ public enum Payload: Codable, Equatable, Sendable {
 
 public struct Envelope: Codable, Equatable, Sendable {
     public static let maximumAge: EpochMilliseconds = 24 * 60 * 60 * 1_000
+    public static let maximumFutureSkew: EpochMilliseconds = 5 * 60 * 1_000
+    public static let maximumSenderNameLength = 63
 
     public let senderID: UUID
     public let senderName: String
@@ -309,6 +339,17 @@ public struct Envelope: Codable, Equatable, Sendable {
     public func verify(teamPhrase: String = "", now: EpochMilliseconds) -> Bool {
         let (oldestAllowed, underflow) = now.subtractingReportingOverflow(Self.maximumAge)
         guard underflow || timestamp >= oldestAllowed else { return false }
+        let (newestAllowed, overflow) = now.addingReportingOverflow(Self.maximumFutureSkew)
+        guard overflow || timestamp <= newestAllowed else { return false }
+        guard !senderName.isEmpty,
+              senderName.utf8.count <= Self.maximumSenderNameLength else { return false }
+
+        if case .schedule(let schedule) = payload {
+            guard schedule.lastModified <= timestamp,
+                  schedule.entries.allSatisfy({ $0.lastEditedAt <= schedule.lastModified }) else {
+                return false
+            }
+        }
 
         let unsigned = UnsignedEnvelope(
             senderID: senderID,

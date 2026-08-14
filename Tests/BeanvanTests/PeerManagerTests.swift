@@ -11,6 +11,21 @@ struct PeerManagerTests {
         #expect(ConnectionPolicy.preferredDirection(local: higher, remote: lower) == .incoming)
     }
 
+    @Test func presenceRequiresBonjourVisibilityAndAuthentication() {
+        #expect(!PeerPresencePolicy.isVisible(
+            isBonjourVisible: true,
+            isAuthenticated: false
+        ))
+        #expect(!PeerPresencePolicy.isVisible(
+            isBonjourVisible: false,
+            isAuthenticated: true
+        ))
+        #expect(PeerPresencePolicy.isVisible(
+            isBonjourVisible: true,
+            isAuthenticated: true
+        ))
+    }
+
     @Test func framingHandlesSplitAndCoalescedTCPReads() throws {
         let first = Data("{\"one\":1}".utf8)
         let second = Data("{\"two\":2}".utf8)

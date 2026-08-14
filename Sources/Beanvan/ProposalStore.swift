@@ -32,6 +32,8 @@ enum ProposalStoreError: LocalizedError, Equatable {
 final class ProposalStore: ObservableObject {
     static let proposalLifetime: EpochMilliseconds = 5 * 60 * 1_000
     static let proposalCooldown: EpochMilliseconds = 20 * 60 * 1_000
+    static let maximumPendingProposalCount = 256
+    static let maximumParticipantsPerProposal = 256
 
     @Published private(set) var activeProposals: [ActiveCoffeeProposal] = []
     @Published private(set) var quorumThreshold: Int
@@ -67,10 +69,10 @@ final class ProposalStore: ObservableObject {
     private var records: [UUID: ProposalRecord] = [:]
     private var activeIDByProposer: [UUID: UUID] = [:]
     private var pendingAccepts: [UUID: Set<UUID>] = [:]
-    private var seenProposalIDs = Set<UUID>()
+    private var pendingAcceptReceivedAt: [UUID: EpochMilliseconds] = [:]
+    private var seenProposalExpirations: [UUID: EpochMilliseconds] = [:]
     private var acceptedProposalIDs = Set<UUID>()
-    private var firedProposalIDs = Set<UUID>()
-    private var canceledProposalIDs = Set<UUID>()
+    private var canceledProposalExpirations: [UUID: EpochMilliseconds] = [:]
     private var pendingFireIDs: [UUID] = []
     private var lastProposalAt: EpochMilliseconds?
     private var stateTimer: Timer?
@@ -180,7 +182,8 @@ final class ProposalStore: ObservableObject {
         guard let record = records[proposalID],
               record.proposal.proposer == instance.id else { return }
 
-        canceledProposalIDs.insert(proposalID)
+        canceledProposalExpirations[proposalID] = Self.tombstoneExpiry(after: now())
+        Self.trimOldest(&canceledProposalExpirations)
         removeProposal(proposalID)
         send(.proposalCancellation(ProposalCancellation(
             proposalID: proposalID,
@@ -205,10 +208,10 @@ final class ProposalStore: ObservableObject {
             records.removeAll()
             activeIDByProposer.removeAll()
             pendingAccepts.removeAll()
-            seenProposalIDs.removeAll()
+            pendingAcceptReceivedAt.removeAll()
+            seenProposalExpirations.removeAll()
             acceptedProposalIDs.removeAll()
-            firedProposalIDs.removeAll()
-            canceledProposalIDs.removeAll()
+            canceledProposalExpirations.removeAll()
             pendingFireIDs.removeAll()
             publishActiveProposals()
         }
@@ -217,6 +220,7 @@ final class ProposalStore: ObservableObject {
 
     func removeExpiredProposals() {
         let timestamp = now()
+        pruneTransientState(at: timestamp)
         let expiredIDs = records.values
             .filter { isExpired($0.proposal, at: timestamp) }
             .map(\.proposal.id)
@@ -229,6 +233,7 @@ final class ProposalStore: ObservableObject {
                 activeIDByProposer.removeValue(forKey: record.proposal.proposer)
             }
             pendingAccepts.removeValue(forKey: id)
+            pendingAcceptReceivedAt.removeValue(forKey: id)
             acceptedProposalIDs.remove(id)
         }
         publishActiveProposals()
@@ -254,13 +259,17 @@ final class ProposalStore: ObservableObject {
     private func receive(proposal: Proposal, envelope: Envelope) {
         removeExpiredProposals()
         guard proposal.proposer == envelope.senderID,
-              !seenProposalIDs.contains(proposal.id),
-              !canceledProposalIDs.contains(proposal.id),
+              seenProposalExpirations[proposal.id] == nil,
+              canceledProposalExpirations[proposal.id] == nil,
               proposal.createdAt <= envelope.timestamp,
-              Self.hasValidLifetime(proposal) else { return }
-        seenProposalIDs.insert(proposal.id)
-        guard !isExpired(proposal, at: now()),
-              activeIDByProposer[proposal.proposer] == nil else { return }
+              Self.hasValidLifetime(proposal),
+              !isExpired(proposal, at: now()) else { return }
+        seenProposalExpirations[proposal.id] = Self.tombstoneExpiry(
+            after: proposal.expiresAt
+        )
+        Self.trimOldest(&seenProposalExpirations)
+        guard activeIDByProposer[proposal.proposer] == nil,
+              records.count < Self.maximumPendingProposalCount else { return }
 
         add(proposal: proposal, proposerName: envelope.senderName)
     }
@@ -268,7 +277,19 @@ final class ProposalStore: ObservableObject {
     private func receive(accept: Accept, envelope: Envelope) {
         guard accept.accepter == envelope.senderID else { return }
         if records[accept.proposalID] == nil {
-            pendingAccepts[accept.proposalID, default: []].insert(accept.accepter)
+            if pendingAccepts[accept.proposalID] == nil {
+                makeRoomForPendingAccept()
+                pendingAcceptReceivedAt[accept.proposalID] = now()
+            }
+            var participants = pendingAccepts[accept.proposalID, default: []]
+            if participants.count < Self.maximumParticipantsPerProposal {
+                participants.insert(accept.accepter)
+                pendingAccepts[accept.proposalID] = participants
+            }
+            return
+        }
+        guard let participantCount = records[accept.proposalID]?.participantIDs.count,
+              participantCount < Self.maximumParticipantsPerProposal else {
             return
         }
         guard records[accept.proposalID]?.participantIDs.insert(accept.accepter).inserted == true else {
@@ -280,7 +301,8 @@ final class ProposalStore: ObservableObject {
 
     private func receive(cancellation: ProposalCancellation, envelope: Envelope) {
         guard cancellation.proposer == envelope.senderID else { return }
-        canceledProposalIDs.insert(cancellation.proposalID)
+        canceledProposalExpirations[cancellation.proposalID] = Self.tombstoneExpiry(after: now())
+        Self.trimOldest(&canceledProposalExpirations)
         guard records[cancellation.proposalID]?.proposal.proposer == cancellation.proposer else {
             return
         }
@@ -288,8 +310,10 @@ final class ProposalStore: ObservableObject {
     }
 
     private func add(proposal: Proposal, proposerName: String) {
-        seenProposalIDs.insert(proposal.id)
+        seenProposalExpirations[proposal.id] = Self.tombstoneExpiry(after: proposal.expiresAt)
+        Self.trimOldest(&seenProposalExpirations)
         var participants = pendingAccepts.removeValue(forKey: proposal.id) ?? []
+        pendingAcceptReceivedAt.removeValue(forKey: proposal.id)
         participants.insert(proposal.proposer)
         records[proposal.id] = ProposalRecord(
             proposal: proposal,
@@ -312,8 +336,7 @@ final class ProposalStore: ObservableObject {
                 threshold: quorumThreshold
               ) else { return }
 
-        if record.participantIDs.contains(instance.id),
-           firedProposalIDs.insert(proposalID).inserted {
+        if record.participantIDs.contains(instance.id) {
             if let onFire {
                 onFire()
             } else {
@@ -328,6 +351,7 @@ final class ProposalStore: ObservableObject {
             activeIDByProposer.removeValue(forKey: record.proposal.proposer)
         }
         pendingAccepts.removeValue(forKey: proposalID)
+        pendingAcceptReceivedAt.removeValue(forKey: proposalID)
         acceptedProposalIDs.remove(proposalID)
         publishActiveProposals()
     }
@@ -420,6 +444,44 @@ final class ProposalStore: ObservableObject {
     private static func hasValidLifetime(_ proposal: Proposal) -> Bool {
         let (lifetime, overflow) = proposal.expiresAt.subtractingReportingOverflow(proposal.createdAt)
         return !overflow && lifetime > 0 && lifetime <= proposalLifetime
+    }
+
+    private func pruneTransientState(at timestamp: EpochMilliseconds) {
+        seenProposalExpirations = seenProposalExpirations.filter { $0.value > timestamp }
+        canceledProposalExpirations = canceledProposalExpirations.filter { $0.value > timestamp }
+
+        let retention = Self.proposalLifetime + Envelope.maximumFutureSkew
+        let (oldestAllowed, underflow) = timestamp.subtractingReportingOverflow(retention)
+        guard !underflow else { return }
+        let stalePendingIDs = pendingAcceptReceivedAt.compactMap { id, receivedAt in
+            receivedAt < oldestAllowed ? id : nil
+        }
+        for id in stalePendingIDs {
+            pendingAcceptReceivedAt.removeValue(forKey: id)
+            pendingAccepts.removeValue(forKey: id)
+        }
+    }
+
+    private func makeRoomForPendingAccept() {
+        guard pendingAccepts.count >= Self.maximumPendingProposalCount,
+              let oldestID = pendingAcceptReceivedAt.min(by: { $0.value < $1.value })?.key else {
+            return
+        }
+        pendingAcceptReceivedAt.removeValue(forKey: oldestID)
+        pendingAccepts.removeValue(forKey: oldestID)
+    }
+
+    private static func trimOldest(_ expirations: inout [UUID: EpochMilliseconds]) {
+        while expirations.count > Self.maximumPendingProposalCount,
+              let oldestID = expirations.min(by: { $0.value < $1.value })?.key {
+            expirations.removeValue(forKey: oldestID)
+        }
+    }
+
+    private static func tombstoneExpiry(after timestamp: EpochMilliseconds) -> EpochMilliseconds {
+        let retention = proposalLifetime + Envelope.maximumFutureSkew
+        let (expiry, overflow) = timestamp.addingReportingOverflow(retention)
+        return overflow ? .max : expiry
     }
 }
 

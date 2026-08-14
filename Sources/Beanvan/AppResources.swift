@@ -182,11 +182,21 @@ struct ImageCache {
 
 @MainActor
 struct AppResources {
-    static let shared = AppResources(bundle: .module)
+    static let shared = AppResources(bundle: resourceBundle)
 
     let animationConfig: AnimationConfig
     let images: ImageCache
     let sounds: SoundCache
+
+    private static var resourceBundle: Bundle {
+        if let resourceURL = Bundle.main.resourceURL,
+           let bundle = Bundle(
+               url: resourceURL.appendingPathComponent("Beanvan_Beanvan.bundle")
+           ) {
+            return bundle
+        }
+        return .module
+    }
 
     private init(bundle: Bundle) {
         animationConfig = Self.loadConfiguration(from: bundle)

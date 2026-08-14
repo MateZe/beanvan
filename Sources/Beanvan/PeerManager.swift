@@ -130,6 +130,7 @@ private final class PeerNetworkingCore: @unchecked Sendable {
     private var browser: NWBrowser?
     private var discovered: [UUID: DiscoveredPeer] = [:]
     private var visiblePeerIDs = Set<UUID>()
+    private var authenticatedPeerIDs = Set<UUID>()
     private var connections: [ObjectIdentifier: ManagedConnection] = [:]
     private var connectionByPeer: [UUID: ObjectIdentifier] = [:]
     private var retryAttempts: [UUID: Int] = [:]
@@ -206,6 +207,7 @@ private final class PeerNetworkingCore: @unchecked Sendable {
             listener = nil
             discovered.removeAll()
             visiblePeerIDs.removeAll()
+            authenticatedPeerIDs.removeAll()
             publishPresentPeers()
         }
         if listenerCancellation?.wait(timeout: .now() + 2) == .timedOut {
@@ -292,9 +294,10 @@ private final class PeerNetworkingCore: @unchecked Sendable {
             guard let peer = Self.peer(from: result, expectedPhraseHash: phraseHash),
                   peer.id != instance.id else { continue }
             visibleIDs.insert(peer.id)
+            let existing = discovered[peer.id]
             discovered[peer.id] = DiscoveredPeer(
                 id: peer.id,
-                name: peer.name,
+                name: authenticatedPeerIDs.contains(peer.id) ? existing?.name ?? peer.name : peer.name,
                 endpoint: result.endpoint,
                 lastSeen: now
             )
@@ -448,6 +451,7 @@ private final class PeerNetworkingCore: @unchecked Sendable {
             endpoint: existing?.endpoint ?? managed.connection.endpoint,
             lastSeen: Date()
         )
+        authenticatedPeerIDs.insert(envelope.senderID)
         publishPresentPeers()
         onEnvelope?(envelope)
     }
@@ -464,6 +468,7 @@ private final class PeerNetworkingCore: @unchecked Sendable {
         managed.isReady = false
         if let peerID = managed.peerID, connectionByPeer[peerID] == identifier {
             connectionByPeer.removeValue(forKey: peerID)
+            authenticatedPeerIDs.remove(peerID)
             if !visiblePeerIDs.contains(peerID) {
                 discovered.removeValue(forKey: peerID)
                 retryWork.removeValue(forKey: peerID)?.cancel()
@@ -492,7 +497,12 @@ private final class PeerNetworkingCore: @unchecked Sendable {
 
     private func publishPresentPeers() {
         let peers = discovered.values
-            .filter { visiblePeerIDs.contains($0.id) }
+            .filter {
+                PeerPresencePolicy.isVisible(
+                    isBonjourVisible: visiblePeerIDs.contains($0.id),
+                    isAuthenticated: authenticatedPeerIDs.contains($0.id)
+                )
+            }
             .map { PresentPeer(id: $0.id, name: $0.name, lastSeen: $0.lastSeen) }
             .sorted {
                 let order = $0.name.localizedCaseInsensitiveCompare($1.name)
@@ -535,6 +545,12 @@ enum ConnectionDirection {
 enum ConnectionPolicy {
     static func preferredDirection(local: UUID, remote: UUID) -> ConnectionDirection {
         local.uuidString < remote.uuidString ? .outgoing : .incoming
+    }
+}
+
+enum PeerPresencePolicy {
+    static func isVisible(isBonjourVisible: Bool, isAuthenticated: Bool) -> Bool {
+        isBonjourVisible && isAuthenticated
     }
 }
 

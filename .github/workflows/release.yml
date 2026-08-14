@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version in x.y.z format"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must use the numeric x.y.z format" >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build release archive
+        run: ./scripts/package-release.sh "${{ steps.version.outputs.value }}" "$GITHUB_RUN_NUMBER"
+
+      - name: Generate Homebrew cask
+        run: ./scripts/generate-cask.sh "$GITHUB_REPOSITORY" "${{ steps.version.outputs.value }}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          tag="v${VERSION}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            if ! git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+              git tag "$tag"
+              git push origin "$tag"
+            fi
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release download "$tag" --pattern beanvan.rb --dir dist --clobber
+          else
+            gh release create "$tag" \
+              "dist/Beanvan-${VERSION}-macos-arm64.zip" \
+              "dist/Beanvan-${VERSION}-macos-arm64.zip.sha256" \
+              dist/beanvan.rb \
+              --generate-notes \
+              --verify-tag
+          fi
+
+      - name: Check out Homebrew tap
+        uses: actions/checkout@v6
+        with:
+          repository: josipmusa/homebrew-tap
+          ref: main
+          path: homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+
+      - name: Publish Homebrew cask
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          cp dist/beanvan.rb homebrew-tap/Casks/beanvan.rb
+          cd homebrew-tap
+          git add Casks/beanvan.rb
+          if git diff --cached --quiet; then
+            echo "Homebrew cask is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update Beanvan to ${VERSION}"
+          git push origin main

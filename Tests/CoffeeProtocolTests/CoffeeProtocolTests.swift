@@ -68,6 +68,67 @@ struct CoffeeProtocolTests {
         }
     }
 
+    @Test func scheduleRejectsDuplicateIDsAndInvalidTimes() {
+        let id = UUID()
+        let valid = ScheduleEntry(
+            id: id,
+            time: ScheduleTime(hour: 10, minute: 30),
+            weekdays: [.monday],
+            lastEditedBy: senderA,
+            lastEditedAt: 1
+        )
+        let duplicate = ScheduleEntry(
+            id: id,
+            time: ScheduleTime(hour: 11, minute: 0),
+            weekdays: [.tuesday],
+            lastEditedBy: senderB,
+            lastEditedAt: 1
+        )
+        let invalid = ScheduleEntry(
+            id: UUID(),
+            time: ScheduleTime(hour: 24, minute: 0),
+            weekdays: [.monday],
+            lastEditedBy: senderA,
+            lastEditedAt: 1
+        )
+
+        #expect(throws: CoffeeProtocolError.duplicateScheduleEntryID) {
+            try Schedule(entries: [valid, duplicate], lastModified: 1)
+        }
+        #expect(throws: CoffeeProtocolError.invalidScheduleTime) {
+            try Schedule(entries: [invalid], lastModified: 1)
+        }
+    }
+
+    @Test func envelopeRejectsFutureTimestampsAndInconsistentScheduleVersions() throws {
+        let now: EpochMilliseconds = 2_000_000_000_000
+        let futureEnvelope = try Envelope.signed(
+            senderID: senderA,
+            senderName: "Alice",
+            timestamp: now + Envelope.maximumFutureSkew + 1,
+            payload: .accept(Accept(proposalID: senderB, accepter: senderA)),
+            teamPhrase: "beans"
+        )
+        #expect(!futureEnvelope.verify(teamPhrase: "beans", now: now))
+
+        let entry = ScheduleEntry(
+            id: UUID(),
+            time: ScheduleTime(hour: 10, minute: 30),
+            weekdays: [.monday],
+            lastEditedBy: senderA,
+            lastEditedAt: now + 1
+        )
+        let schedule = try Schedule(entries: [entry], lastModified: now + 1)
+        let inconsistentEnvelope = try Envelope.signed(
+            senderID: senderA,
+            senderName: "Alice",
+            timestamp: now,
+            payload: .schedule(schedule),
+            teamPhrase: "beans"
+        )
+        #expect(!inconsistentEnvelope.verify(teamPhrase: "beans", now: now))
+    }
+
     @Test func lwwMergeUsesTimestampThenSenderID() throws {
         let older = VersionedSchedule(
             schedule: try Schedule(entries: [], lastModified: 100),

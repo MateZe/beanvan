@@ -223,11 +223,53 @@ struct ProposalStoreTests {
         }
     }
 
-    private func signed(_ payload: Payload, senderID: UUID, name: String) throws -> Envelope {
+    @Test func pendingAcceptsAreBoundedAndEvictTheOldestUnknownProposal() throws {
+        try withFixture { instance, transport, _ in
+            var timestamp: EpochMilliseconds = 1_000
+            let store = try ProposalStore(
+                instance: instance,
+                transport: transport,
+                now: { timestamp }
+            )
+            let proposalIDs = (0...ProposalStore.maximumPendingProposalCount).map { _ in UUID() }
+
+            for proposalID in proposalIDs {
+                transport.receive(try signed(
+                    .accept(Accept(proposalID: proposalID, accepter: accepterID)),
+                    senderID: accepterID,
+                    name: "Ana",
+                    timestamp: timestamp
+                ))
+                timestamp += 1
+            }
+
+            let oldestProposal = Proposal(
+                id: proposalIDs[0],
+                proposer: proposerID,
+                createdAt: timestamp,
+                expiresAt: timestamp + ProposalStore.proposalLifetime
+            )
+            transport.receive(try signed(
+                .proposal(oldestProposal),
+                senderID: proposerID,
+                name: "Marko",
+                timestamp: timestamp
+            ))
+
+            #expect(store.activeProposals.first?.participantIDs == Set([proposerID]))
+        }
+    }
+
+    private func signed(
+        _ payload: Payload,
+        senderID: UUID,
+        name: String,
+        timestamp: EpochMilliseconds = 1_000
+    ) throws -> Envelope {
         try Envelope.signed(
             senderID: senderID,
             senderName: name,
-            timestamp: 1_000,
+            timestamp: timestamp,
             payload: payload,
             teamPhrase: "beans"
         )
