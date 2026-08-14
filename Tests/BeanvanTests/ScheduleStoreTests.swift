@@ -1,7 +1,7 @@
 import CoffeeProtocol
 import Foundation
 import Testing
-@testable import CuppaJoe
+@testable import Beanvan
 
 @MainActor
 struct ScheduleStoreTests {
@@ -150,7 +150,7 @@ struct ScheduleStoreTests {
         _ body: (AppInstance, FakeScheduleTransport) throws -> Void
     ) throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CuppaJoe-ScheduleStoreTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("Beanvan-ScheduleStoreTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let instance = AppInstance(

@@ -4,7 +4,7 @@ import Combine
 import SwiftUI
 
 @MainActor
-enum CuppaJoeDesign {
+enum BeanvanDesign {
     static let brandTeal = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             ? NSColor(srgbRed: 0.31, green: 0.78, blue: 0.65, alpha: 1)
@@ -157,8 +157,8 @@ struct MenuBarTruckIcon: View {
             if !proposalStore.activeProposals.isEmpty {
                 Circle()
                     .fill(colorScheme == .dark
-                        ? CuppaJoeDesign.darkMenuBarTeal
-                        : CuppaJoeDesign.brandTeal)
+                        ? BeanvanDesign.darkMenuBarTeal
+                        : BeanvanDesign.brandTeal)
                     .frame(width: 5, height: 5)
                     .offset(x: 1, y: -1)
             }
@@ -185,9 +185,9 @@ struct MenuBarTruckIcon: View {
     }
 
     private var accessibilityLabel: String {
-        if scheduler.isSkippingToday { return "CuppaJoe, skipping today" }
-        if !proposalStore.activeProposals.isEmpty { return "CuppaJoe, coffee proposal waiting" }
-        return "CuppaJoe"
+        if scheduler.isSkippingToday { return "Beanvan, skipping today" }
+        if !proposalStore.activeProposals.isEmpty { return "Beanvan, coffee proposal waiting" }
+        return "Beanvan"
     }
 }
 
@@ -242,7 +242,7 @@ struct CoffeePopover: View {
                 }
             }
         }
-        .frame(width: CuppaJoeDesign.popoverWidth)
+        .frame(width: BeanvanDesign.popoverWidth)
         .background(.regularMaterial)
         .animation(.easeOut(duration: 0.2), value: displayedProposal?.id)
         .animation(.easeOut(duration: 0.18), value: isShowingSettings)
@@ -276,7 +276,7 @@ private struct ProposalCard: View {
                             proposalStore.cancel(proposal.id)
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(CuppaJoeDesign.brandTeal)
+                        .foregroundStyle(BeanvanDesign.brandTeal)
                     }
                 } else {
                     Text("\(proposal.proposerName) proposes coffee")
@@ -305,14 +305,14 @@ private struct ProposalCard: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(CuppaJoeDesign.brandTeal)
+                        .tint(BeanvanDesign.brandTeal)
                     }
                 }
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                CuppaJoeDesign.proposalTint,
+                BeanvanDesign.proposalTint,
                 in: RoundedRectangle(cornerRadius: 10, style: .continuous)
             )
             .foregroundStyle(.primary)
@@ -737,7 +737,7 @@ private struct WeekdayToggle: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(isOn ? Color.white : .secondary)
                 .frame(width: 19, height: 19)
-                .background(isOn ? CuppaJoeDesign.brandTeal : Color.clear, in: Circle())
+                .background(isOn ? BeanvanDesign.brandTeal : Color.clear, in: Circle())
                 .overlay {
                     if !isOn {
                         Circle().stroke(.quaternary)
@@ -794,7 +794,7 @@ private struct ActionsSection: View {
             .font(.system(size: 14, weight: .semibold))
             .toggleStyle(.switch)
             .controlSize(.small)
-            .tint(CuppaJoeDesign.brandTeal)
+            .tint(BeanvanDesign.brandTeal)
         }
     }
 }
@@ -879,7 +879,7 @@ private struct PopoverSettingsView: View {
             )
         }
         .padding(16)
-        .frame(width: CuppaJoeDesign.popoverWidth, alignment: .topLeading)
+        .frame(width: BeanvanDesign.popoverWidth, alignment: .topLeading)
         .onDisappear(perform: applySettings)
     }
 
@@ -1018,7 +1018,7 @@ private struct QuorumControl: View {
     }
 }
 
-struct CuppaJoeSettingsView: View {
+struct BeanvanSettingsView: View {
     @ObservedObject var appModel: AppModel
     @ObservedObject var proposalStore: ProposalStore
     @State private var displayName: String

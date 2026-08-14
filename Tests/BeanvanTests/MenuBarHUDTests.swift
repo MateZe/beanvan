@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CuppaJoe
+@testable import Beanvan
 
 struct MenuBarHUDTests {
     @Test func iconMovesFromIdleToSteamAndBackAtFire() {

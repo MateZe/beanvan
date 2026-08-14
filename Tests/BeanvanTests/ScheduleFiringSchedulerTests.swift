@@ -1,7 +1,7 @@
 import CoffeeProtocol
 import Foundation
 import Testing
-@testable import CuppaJoe
+@testable import Beanvan
 
 @MainActor
 struct ScheduleFiringSchedulerTests {
@@ -99,7 +99,7 @@ struct ScheduleFiringSchedulerTests {
 
     @Test func scheduleEditRearmsTimerWithPublishedSchedule() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CuppaJoe-SchedulerTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("Beanvan-SchedulerTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -147,7 +147,7 @@ struct ScheduleFiringSchedulerTests {
 
     @Test func skipTodayPausesAdvertisingAndResetsOnTheNextLocalDay() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CuppaJoe-SchedulerTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("Beanvan-SchedulerTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 

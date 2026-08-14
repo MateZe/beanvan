@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "CuppaJoe",
+    name: "Beanvan",
     platforms: [
         .macOS(.v14),
     ],
@@ -12,15 +12,15 @@ let package = Package(
             name: "CoffeeProtocol"
         ),
         .executableTarget(
-            name: "CuppaJoe",
+            name: "Beanvan",
             dependencies: ["CoffeeProtocol"],
             resources: [
                 .process("Resources"),
             ]
         ),
         .testTarget(
-            name: "CuppaJoeTests",
-            dependencies: ["CuppaJoe"]
+            name: "BeanvanTests",
+            dependencies: ["Beanvan"]
         ),
         .testTarget(
             name: "CoffeeProtocolTests",

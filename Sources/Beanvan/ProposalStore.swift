@@ -62,7 +62,7 @@ final class ProposalStore: ObservableObject {
     private let persistenceURL: URL
     private let fileManager: FileManager
     private let now: () -> EpochMilliseconds
-    private let logger = Logger(subsystem: "com.josipmusa.cuppajoe", category: "proposals")
+    private let logger = Logger(subsystem: "com.josipmusa.beanvan", category: "proposals")
 
     private var records: [UUID: ProposalRecord] = [:]
     private var activeIDByProposer: [UUID: UUID] = [:]

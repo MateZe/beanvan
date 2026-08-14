@@ -117,7 +117,7 @@ final class FiringGate: NSObject {
 
     private let environment: FiringGateEnvironment
     private let notificationCenter: NotificationCenter
-    private let logger = Logger(subsystem: "com.josipmusa.cuppajoe", category: "firing-gate")
+    private let logger = Logger(subsystem: "com.josipmusa.beanvan", category: "firing-gate")
     private(set) var isDisplayAsleep: Bool
 
     init(

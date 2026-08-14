@@ -72,7 +72,7 @@ final class ScheduleFiringScheduler: NSObject, ObservableObject {
     private let calendar: () -> Calendar
     private let notificationCenter: NotificationCenter
     private let workspaceNotificationCenter: NotificationCenter
-    private let logger = Logger(subsystem: "com.josipmusa.cuppajoe", category: "scheduler")
+    private let logger = Logger(subsystem: "com.josipmusa.beanvan", category: "scheduler")
 
     private var scheduleCancellable: AnyCancellable?
     private var fireTimer: Timer?

@@ -48,7 +48,7 @@ struct CoffeeProtocolTests {
         #expect(decoded == envelope)
         #expect(decoded.verify(now: 123))
         #expect(try decoded.canonicalJSONData() == envelope.canonicalJSONData())
-        #expect(TeamPhrase.shortHash(for: "") == "5cd3457e5892")
+        #expect(TeamPhrase.shortHash(for: "") == "7343cd32d606")
         #expect(TeamPhrase.shortHash(for: "beans").count == 12)
         #expect(TeamPhrase.shortHash(for: "beans") != TeamPhrase.shortHash(for: "tea"))
     }

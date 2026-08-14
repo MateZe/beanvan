@@ -112,7 +112,7 @@ final class PeerManager: ObservableObject {
 }
 
 private final class PeerNetworkingCore: @unchecked Sendable {
-    nonisolated static let serviceType = "_coffeebreak._tcp"
+    nonisolated static let serviceType = "_beanvan._tcp"
     nonisolated static let displayNameKey = "displayName"
     nonisolated static let phraseHashKey = "phraseHash"
 
@@ -124,7 +124,7 @@ private final class PeerNetworkingCore: @unchecked Sendable {
     private let teamPhrase: String
     private let phraseHash: String
     private let queue: DispatchQueue
-    private let logger = Logger(subsystem: "com.josipmusa.cuppajoe", category: "peers")
+    private let logger = Logger(subsystem: "com.josipmusa.beanvan", category: "peers")
 
     private var listener: NWListener?
     private var browser: NWBrowser?
@@ -141,7 +141,7 @@ private final class PeerNetworkingCore: @unchecked Sendable {
         self.teamPhrase = teamPhrase
         self.advertisingEnabled = advertisingEnabled
         phraseHash = TeamPhrase.shortHash(for: teamPhrase)
-        queue = DispatchQueue(label: "com.josipmusa.cuppajoe.peer-manager.\(instance.id.uuidString)")
+        queue = DispatchQueue(label: "com.josipmusa.beanvan.peer-manager.\(instance.id.uuidString)")
     }
 
     func start() throws {

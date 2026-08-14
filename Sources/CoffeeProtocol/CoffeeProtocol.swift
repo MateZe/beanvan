@@ -335,9 +335,9 @@ public struct Envelope: Codable, Equatable, Sendable {
 
 private func keyMaterial(for teamPhrase: String) -> Data {
     if teamPhrase.isEmpty {
-        return Data("CuppaJoe CoffeeProtocol default key v1".utf8)
+        return Data("Beanvan CoffeeProtocol default key v1".utf8)
     }
-    return Data("CuppaJoe CoffeeProtocol team phrase v1\u{0}\(teamPhrase)".utf8)
+    return Data("Beanvan CoffeeProtocol team phrase v1\u{0}\(teamPhrase)".utf8)
 }
 
 private struct UnsignedEnvelope: Codable {

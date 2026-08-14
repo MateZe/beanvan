@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 import Testing
-@testable import CuppaJoe
+@testable import Beanvan
 
 @MainActor
 struct FiringGateTests {

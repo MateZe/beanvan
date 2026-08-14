@@ -3,7 +3,7 @@ import CoffeeProtocol
 import SwiftUI
 
 @main
-struct CuppaJoeApp: App {
+struct BeanvanApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appModel = AppModel.shared
 
@@ -23,7 +23,7 @@ struct CuppaJoeApp: App {
                 )
             } else {
                 ContentUnavailableView(
-                    "CuppaJoe could not start",
+                    "Beanvan could not start",
                     systemImage: "exclamationmark.triangle",
                     description: Text(appModel.startupError ?? "Unknown startup error")
                 )
@@ -40,14 +40,14 @@ struct CuppaJoeApp: App {
                 )
             } else {
                 Image(nsImage: TruckTemplateImage.image(steam: false))
-                    .accessibilityLabel("CuppaJoe")
+                    .accessibilityLabel("Beanvan")
             }
         }
         .menuBarExtraStyle(.window)
 
         Settings {
             if let proposalStore = appModel.proposalStore {
-                CuppaJoeSettingsView(appModel: appModel, proposalStore: proposalStore)
+                BeanvanSettingsView(appModel: appModel, proposalStore: proposalStore)
             }
         }
     }
@@ -109,7 +109,7 @@ final class AppModel: ObservableObject {
             scheduler = nil
             proposalStore = nil
             startupError = error.localizedDescription
-            fputs("CuppaJoe peer discovery failed: \(error.localizedDescription)\n", stderr)
+            fputs("Beanvan peer discovery failed: \(error.localizedDescription)\n", stderr)
         }
     }
 

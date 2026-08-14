@@ -1,6 +1,6 @@
-# CuppaJoe
+# Beanvan
 
-![CuppaJoe animation](docs/cuppajoe-animation.gif)
+![Beanvan animation](docs/beanvan-animation.gif)
 
 ## Manual peer discovery test
 
@@ -9,7 +9,7 @@ Launch each instance in a separate Terminal window:
 ```sh
 make run-a PHRASE=coffee-team
 make run-b PHRASE=coffee-team
-swift run CuppaJoe --name "CuppaJoe C" --port 0 --phrase different-team
+swift run Beanvan --name "Beanvan C" --port 0 --phrase different-team
 ```
 
 Open each truck menu-bar popover and check the live presence row near the top:
@@ -42,7 +42,7 @@ For expiry, raise the quorum above the team size and create another proposal aft
 
 ## Automatic overlay suppression
 
-Immediately before a scheduled or quorum-triggered overlay, CuppaJoe locally
+Immediately before a scheduled or quorum-triggered overlay, Beanvan locally
 suppresses the animation while the screen is locked, the displays are asleep, or
 an enabled interruption preference matches the frontmost app. The full-screen
 and known meeting-app checks are enabled by default in Settings. Suppression is
@@ -50,7 +50,7 @@ local only and does not change what happens on teammates' Macs. Preview remains
 available as an explicit action.
 
 Focus / Do Not Disturb is not checked. macOS does not provide a reliable public,
-permission-free API for reading its current state, and CuppaJoe does not use
+permission-free API for reading its current state, and Beanvan does not use
 private APIs or request Screen Recording, Accessibility, or Input Monitoring.
 
 To test full-screen suppression, schedule a fire a minute or two ahead, enter

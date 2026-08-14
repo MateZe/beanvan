@@ -1,4 +1,4 @@
-PRODUCT := CuppaJoe
+PRODUCT := Beanvan
 CONFIGURATION ?= release
 APP := dist/$(PRODUCT).app
 PHRASE ?=
@@ -9,10 +9,10 @@ run:
 	swift run $(PRODUCT) --phrase "$(PHRASE)"
 
 run-a:
-	swift run $(PRODUCT) --name "CuppaJoe A" --port 0 --phrase "$(PHRASE)"
+	swift run $(PRODUCT) --name "Beanvan A" --port 0 --phrase "$(PHRASE)"
 
 run-b:
-	swift run $(PRODUCT) --name "CuppaJoe B" --port 0 --phrase "$(PHRASE)"
+	swift run $(PRODUCT) --name "Beanvan B" --port 0 --phrase "$(PHRASE)"
 
 bundle:
 	swift build -c $(CONFIGURATION) --product $(PRODUCT)
@@ -22,7 +22,7 @@ bundle:
 	mkdir -p "$$APP/Contents/MacOS" "$$APP/Contents/Resources"; \
 	cp "$$BIN_PATH/$(PRODUCT)" "$$APP/Contents/MacOS/$(PRODUCT)"; \
 	cp "Support/Info.plist" "$$APP/Contents/Info.plist"; \
-	for RESOURCE_BUNDLE in "$$BIN_PATH"/*.bundle; do \
+	for RESOURCE_BUNDLE in "$$BIN_PATH/$(PRODUCT)_$(PRODUCT).bundle"; do \
 		[ -e "$$RESOURCE_BUNDLE" ] || continue; \
 		BUNDLE_NAME="$$(basename "$$RESOURCE_BUNDLE")"; \
 		cp -R "$$RESOURCE_BUNDLE" "$$APP/Contents/Resources/$$BUNDLE_NAME"; \

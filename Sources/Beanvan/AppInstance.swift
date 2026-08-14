@@ -1,7 +1,7 @@
 import Foundation
 
 struct AppInstance: Sendable {
-    static let appName = "CuppaJoe"
+    static let appName = "Beanvan"
 
     let displayName: String
     let requestedPort: UInt16

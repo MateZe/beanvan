@@ -32,7 +32,7 @@ final class ScheduleStore: ObservableObject {
     private let persistenceURL: URL
     private let fileManager: FileManager
     private let now: () -> EpochMilliseconds
-    private let logger = Logger(subsystem: "com.josipmusa.cuppajoe", category: "schedule")
+    private let logger = Logger(subsystem: "com.josipmusa.beanvan", category: "schedule")
     private var versionSenderID: UUID
 
     init(

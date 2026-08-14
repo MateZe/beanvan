@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CuppaJoe
+@testable import Beanvan
 
 struct AppInstanceTests {
     @Test func launchOptionsUseUsernameAndAutomaticPortByDefault() throws {
@@ -48,8 +48,8 @@ struct AppInstanceTests {
             applicationSupportDirectory: root
         )
 
-        #expect(firstA.stateDirectory == root.appendingPathComponent("CuppaJoe/A"))
-        #expect(instanceB.stateDirectory == root.appendingPathComponent("CuppaJoe/B"))
+        #expect(firstA.stateDirectory == root.appendingPathComponent("Beanvan/A"))
+        #expect(instanceB.stateDirectory == root.appendingPathComponent("Beanvan/B"))
         #expect(firstA.id == secondA.id)
         #expect(firstA.id != instanceB.id)
         #expect(firstA.teamPhrase.isEmpty)
@@ -57,7 +57,7 @@ struct AppInstanceTests {
 
     @Test func persistedSettingsLoadUnlessLaunchArgumentsOverrideThem() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CuppaJoe-AppSettingsTests-\(UUID().uuidString)")
+            .appendingPathComponent("Beanvan-AppSettingsTests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let instance = AppInstance(
