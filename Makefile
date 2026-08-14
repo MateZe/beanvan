@@ -2,10 +2,16 @@ PRODUCT := CuppaJoe
 CONFIGURATION ?= release
 APP := dist/$(PRODUCT).app
 
-.PHONY: run bundle clean
+.PHONY: run run-a run-b bundle clean
 
 run:
 	swift run $(PRODUCT)
+
+run-a:
+	swift run $(PRODUCT) --name "CuppaJoe A" --port 0
+
+run-b:
+	swift run $(PRODUCT) --name "CuppaJoe B" --port 0
 
 bundle:
 	swift build -c $(CONFIGURATION) --product $(PRODUCT)

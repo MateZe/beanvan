@@ -24,12 +24,24 @@ struct CuppaJoeApp: App {
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayController: OverlayController?
+    private var peerDiscovery: PeerDiscovery?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        let resources = AppResources.shared
-        overlayController = OverlayController(resources: resources)
+        do {
+            let instance = try AppInstance.load()
+            peerDiscovery = PeerDiscovery(instance: instance)
+            try peerDiscovery?.start()
+            overlayController = OverlayController(resources: AppResources.shared)
+        } catch {
+            fputs("CuppaJoe failed to start: \(error.localizedDescription)\n", stderr)
+            NSApp.terminate(nil)
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        peerDiscovery?.stop()
     }
 
     func previewAnimation() {
