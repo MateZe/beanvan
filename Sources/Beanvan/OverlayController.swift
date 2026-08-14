@@ -1,21 +1,23 @@
 import AppKit
+import AVFoundation
 import CoreText
 import QuartzCore
 
 @MainActor
 final class OverlayController {
     private let resources: AppResources
+    private let soundPlayer: OverlaySoundPlayer
     private var window: NSWindow?
     private var escapeKeyMonitor: Any?
 
     init(resources: AppResources) {
         self.resources = resources
+        soundPlayer = OverlaySoundPlayer(sounds: resources.sounds)
     }
 
-    func show() {
-        guard let screen = NSScreen.main else { return }
-
+    func show(soundEnabled: Bool) {
         dismiss()
+        guard let screen = NSScreen.main else { return }
 
         let window = OverlayWindow(
             contentRect: screen.frame,
@@ -41,13 +43,17 @@ final class OverlayController {
         self.window = window
         installEscapeKeyMonitor()
         window.orderFrontRegardless()
-        overlayView.animate(
+        let didStartAnimation = overlayView.animate(
             images: resources.images,
             config: resources.animationConfig
         )
+        if soundEnabled, didStartAnimation {
+            soundPlayer.play(config: resources.animationConfig, viewportWidth: screen.frame.width)
+        }
     }
 
     func dismiss() {
+        soundPlayer.stop()
         removeEscapeKeyMonitor()
         (window?.contentView as? OverlayView)?.stopAnimation()
         window?.orderOut(nil)
@@ -68,6 +74,127 @@ final class OverlayController {
             NSEvent.removeMonitor(escapeKeyMonitor)
             self.escapeKeyMonitor = nil
         }
+    }
+}
+
+@MainActor
+private final class OverlaySoundPlayer {
+    private let honkPlayer: AVAudioPlayer?
+    private let splashPlayer: AVAudioPlayer?
+    private var honkTimer: Timer?
+    private var splashTimer: Timer?
+
+    init(sounds: SoundCache) {
+        honkPlayer = try? AVAudioPlayer(contentsOf: sounds[.softHonk])
+        splashPlayer = try? AVAudioPlayer(contentsOf: sounds[.smallSplash])
+        honkPlayer?.prepareToPlay()
+        splashPlayer?.prepareToPlay()
+    }
+
+    func play(config: AnimationConfig, viewportWidth: CGFloat) {
+        stop()
+
+        let scale = config.global.durationScale
+        let bumpTime = OverlayTimeline.bumpTime(
+            viewportWidth: viewportWidth,
+            truckWidth: config.truck.size,
+            config: config
+        )
+        honkTimer = schedule(
+            after: config.sound.honkDelay * scale,
+            player: honkPlayer,
+            volume: config.sound.honkVolume,
+            selector: #selector(playHonk(_:))
+        )
+        splashTimer = schedule(
+            after: (bumpTime + config.timing.tipDelay + config.cup.flightDuration) * scale,
+            player: splashPlayer,
+            volume: config.sound.splashVolume,
+            selector: #selector(playSplash(_:))
+        )
+    }
+
+    func stop() {
+        honkTimer?.invalidate()
+        splashTimer?.invalidate()
+        honkTimer = nil
+        splashTimer = nil
+        [honkPlayer, splashPlayer].forEach { player in
+            player?.stop()
+            player?.currentTime = 0
+        }
+    }
+
+    private func schedule(
+        after delay: TimeInterval,
+        player: AVAudioPlayer?,
+        volume: Float,
+        selector: Selector
+    ) -> Timer? {
+        guard let player else { return nil }
+        player.volume = min(max(volume, 0), 1)
+        player.currentTime = 0
+        let timer = Timer(
+            timeInterval: max(0, delay),
+            target: self,
+            selector: selector,
+            userInfo: nil,
+            repeats: false
+        )
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
+    }
+
+    @objc private func playHonk(_ timer: Timer) {
+        honkTimer = nil
+        honkPlayer?.play()
+    }
+
+    @objc private func playSplash(_ timer: Timer) {
+        splashTimer = nil
+        splashPlayer?.play()
+    }
+}
+
+enum OverlayTimeline {
+    static func bumpTime(
+        viewportWidth: CGFloat,
+        truckWidth: CGFloat,
+        config: AnimationConfig
+    ) -> TimeInterval {
+        let targetLeft = viewportWidth * config.bump.position / 100 - truckWidth / 2
+        let entryEndLeft = -truckWidth + config.truck.cruiseSpeed * config.timing.enterDuration
+
+        if targetLeft >= entryEndLeft {
+            return (targetLeft + truckWidth) / config.truck.cruiseSpeed
+        }
+
+        var lowerTime: TimeInterval = 0
+        var upperTime = config.timing.enterDuration
+        for _ in 0..<16 {
+            let middleTime = (lowerTime + upperTime) / 2
+            if baseTruckPosition(at: middleTime, truckWidth: truckWidth, config: config) < targetLeft {
+                lowerTime = middleTime
+            } else {
+                upperTime = middleTime
+            }
+        }
+        return (lowerTime + upperTime) / 2
+    }
+
+    static func baseTruckPosition(
+        at elapsed: TimeInterval,
+        truckWidth: CGFloat,
+        config: AnimationConfig
+    ) -> CGFloat {
+        let enterDuration = config.timing.enterDuration
+        guard elapsed < enterDuration else {
+            return -truckWidth + config.truck.cruiseSpeed * elapsed
+        }
+
+        let progress = max(0, min(1, elapsed / enterDuration))
+        let easedProgress = -(progress * progress * progress) + 2 * progress * progress
+        return -truckWidth + config.truck.cruiseSpeed * enterDuration * easedProgress
     }
 }
 
@@ -133,7 +260,8 @@ private final class OverlayView: NSView {
         dismissHandler()
     }
 
-    func animate(images: ImageCache, config: AnimationConfig) {
+    @discardableResult
+    func animate(images: ImageCache, config: AnimationConfig) -> Bool {
         guard
             let rootLayer = layer,
             let uprightImage = images[.truckUpright].cgImage(forProposedRect: nil, context: nil, hints: nil),
@@ -143,7 +271,7 @@ private final class OverlayView: NSView {
             let croppedTippedImage = tippedImage.cropping(to: TruckArtwork.tippedCrop),
             let croppedCupImage = cupImage.cropping(to: CupArtwork.crop),
             let croppedEmbeddedCupImage = uprightImage.cropping(to: CupArtwork.embeddedCrop)
-        else { return }
+        else { return false }
 
         stopAnimation()
         rootLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
@@ -241,6 +369,7 @@ private final class OverlayView: NSView {
         )
         startInteractionTracking()
         scheduleCompletion(after: exitTime * config.global.durationScale)
+        return true
     }
 
     func stopAnimation() {
@@ -417,24 +546,11 @@ private final class OverlayView: NSView {
         truckWidth: CGFloat,
         config: AnimationConfig
     ) -> TimeInterval {
-        let targetLeft = viewportWidth * config.bump.position / 100 - truckWidth / 2
-        let entryEndLeft = -truckWidth + config.truck.cruiseSpeed * config.timing.enterDuration
-
-        if targetLeft >= entryEndLeft {
-            return (targetLeft + truckWidth) / config.truck.cruiseSpeed
-        }
-
-        var lowerTime: TimeInterval = 0
-        var upperTime = config.timing.enterDuration
-        for _ in 0..<16 {
-            let middleTime = (lowerTime + upperTime) / 2
-            if baseTruckPosition(at: middleTime, truckWidth: truckWidth, config: config) < targetLeft {
-                lowerTime = middleTime
-            } else {
-                upperTime = middleTime
-            }
-        }
-        return (lowerTime + upperTime) / 2
+        OverlayTimeline.bumpTime(
+            viewportWidth: viewportWidth,
+            truckWidth: truckWidth,
+            config: config
+        )
     }
 
     private func baseTruckPosition(
@@ -442,14 +558,11 @@ private final class OverlayView: NSView {
         truckWidth: CGFloat,
         config: AnimationConfig
     ) -> CGFloat {
-        let enterDuration = config.timing.enterDuration
-        guard elapsed < enterDuration else {
-            return -truckWidth + config.truck.cruiseSpeed * elapsed
-        }
-
-        let progress = max(0, min(1, elapsed / enterDuration))
-        let easedProgress = -(progress * progress * progress) + 2 * progress * progress
-        return -truckWidth + config.truck.cruiseSpeed * enterDuration * easedProgress
+        OverlayTimeline.baseTruckPosition(
+            at: elapsed,
+            truckWidth: truckWidth,
+            config: config
+        )
     }
 
     private func truckPosition(

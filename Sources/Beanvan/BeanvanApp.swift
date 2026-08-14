@@ -67,6 +67,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var teamPhrase = ""
     @Published private(set) var avoidsFullScreenApps = true
     @Published private(set) var avoidsCalls = true
+    @Published private(set) var soundEnabled = false
     @Published private(set) var settingsError: String?
 
     private var instance: AppInstance?
@@ -98,6 +99,7 @@ final class AppModel: ObservableObject {
             teamPhrase = instance.teamPhrase
             avoidsFullScreenApps = settings.avoidsFullScreenApps
             avoidsCalls = settings.avoidsCalls
+            soundEnabled = settings.soundEnabled
             peerManager = manager
             self.scheduleStore = scheduleStore
             self.scheduler = scheduler
@@ -124,7 +126,8 @@ final class AppModel: ObservableObject {
                 displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
                 teamPhrase: teamPhrase,
                 avoidsFullScreenApps: avoidsFullScreenApps,
-                avoidsCalls: avoidsCalls
+                avoidsCalls: avoidsCalls,
+                soundEnabled: soundEnabled
             ).validated()
             guard settings.displayName != oldInstance.displayName
                     || settings.teamPhrase != oldInstance.teamPhrase else {
@@ -147,7 +150,8 @@ final class AppModel: ObservableObject {
                     displayName: oldInstance.displayName,
                     teamPhrase: oldInstance.teamPhrase,
                     avoidsFullScreenApps: avoidsFullScreenApps,
-                    avoidsCalls: avoidsCalls
+                    avoidsCalls: avoidsCalls,
+                    soundEnabled: soundEnabled
                 ).persist(for: oldInstance)
                 throw error
             }
@@ -173,12 +177,32 @@ final class AppModel: ObservableObject {
                 displayName: displayName,
                 teamPhrase: teamPhrase,
                 avoidsFullScreenApps: avoidsFullScreenApps,
-                avoidsCalls: avoidsCalls
+                avoidsCalls: avoidsCalls,
+                soundEnabled: soundEnabled
             ).persist(for: instance)
             settingsError = nil
         } catch {
             self.avoidsFullScreenApps = oldFullScreenValue
             self.avoidsCalls = oldCallsValue
+            settingsError = error.localizedDescription
+        }
+    }
+
+    func setSoundEnabled(_ enabled: Bool) {
+        guard let instance else { return }
+        let oldValue = soundEnabled
+        soundEnabled = enabled
+        do {
+            try AppSettings(
+                displayName: displayName,
+                teamPhrase: teamPhrase,
+                avoidsFullScreenApps: avoidsFullScreenApps,
+                avoidsCalls: avoidsCalls,
+                soundEnabled: enabled
+            ).persist(for: instance)
+            settingsError = nil
+        } catch {
+            soundEnabled = oldValue
             settingsError = error.localizedDescription
         }
     }
@@ -208,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func previewAnimation() {
-        overlayController?.show()
+        overlayController?.show(soundEnabled: AppModel.shared.soundEnabled)
     }
 
     private func showAutomaticOverlayIfAllowed() {
@@ -217,6 +241,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             avoidsFullScreenApps: appModel.avoidsFullScreenApps,
             avoidsCalls: appModel.avoidsCalls
         ) == true else { return }
-        overlayController?.show()
+        overlayController?.show(soundEnabled: appModel.soundEnabled)
     }
 }

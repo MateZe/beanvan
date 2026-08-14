@@ -964,6 +964,12 @@ private struct SettingsFields: View {
             ))
             .toggleStyle(.switch)
 
+            Toggle("Sound", isOn: Binding(
+                get: { appModel.soundEnabled },
+                set: { appModel.setSoundEnabled($0) }
+            ))
+            .toggleStyle(.switch)
+
             if let error = appModel.settingsError {
                 Text(error)
                     .font(.caption)

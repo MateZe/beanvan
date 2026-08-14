@@ -87,6 +87,7 @@ struct AppInstanceTests {
 
         #expect(settings.avoidsFullScreenApps)
         #expect(settings.avoidsCalls)
+        #expect(!settings.soundEnabled)
     }
 
     @Test func interruptionPreferencesRoundTrip() throws {
@@ -94,7 +95,8 @@ struct AppInstanceTests {
             displayName: "Saved Name",
             teamPhrase: "beans",
             avoidsFullScreenApps: false,
-            avoidsCalls: false
+            avoidsCalls: false,
+            soundEnabled: true
         )
 
         let decoded = try JSONDecoder().decode(

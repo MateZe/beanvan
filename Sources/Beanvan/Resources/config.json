@@ -93,5 +93,10 @@
   },
   "global": {
     "durationScale": 1
+  },
+  "sound": {
+    "honkDelay": 0.14,
+    "honkVolume": 0.3,
+    "splashVolume": 0.34
   }
 }

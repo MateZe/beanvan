@@ -106,6 +106,12 @@ struct AnimationConfig: Decodable {
         let durationScale: Double
     }
 
+    struct Sound: Decodable {
+        let honkDelay: TimeInterval
+        let honkVolume: Float
+        let splashVolume: Float
+    }
+
     let truck: Truck
     let banner: Banner
     let timing: Timing
@@ -115,6 +121,32 @@ struct AnimationConfig: Decodable {
     let liquid: Liquid
     let wobble: Wobble
     let global: Global
+    let sound: Sound
+}
+
+enum CoffeeSound: String, CaseIterable {
+    case softHonk = "soft-honk"
+    case smallSplash = "small-splash"
+}
+
+struct SoundCache {
+    private let urls: [CoffeeSound: URL]
+
+    init(bundle: Bundle) {
+        urls = Dictionary(uniqueKeysWithValues: CoffeeSound.allCases.map { asset in
+            guard let url = bundle.url(forResource: asset.rawValue, withExtension: "wav") else {
+                fatalError("Missing bundled sound: \(asset.rawValue).wav")
+            }
+            return (asset, url)
+        })
+    }
+
+    subscript(_ asset: CoffeeSound) -> URL {
+        guard let url = urls[asset] else {
+            fatalError("Sound was not loaded into the cache: \(asset.rawValue).wav")
+        }
+        return url
+    }
 }
 
 enum CoffeeImage: String, CaseIterable {
@@ -154,10 +186,12 @@ struct AppResources {
 
     let animationConfig: AnimationConfig
     let images: ImageCache
+    let sounds: SoundCache
 
     private init(bundle: Bundle) {
         animationConfig = Self.loadConfiguration(from: bundle)
         images = ImageCache(bundle: bundle)
+        sounds = SoundCache(bundle: bundle)
     }
 
     private static func loadConfiguration(from bundle: Bundle) -> AnimationConfig {

@@ -5,17 +5,20 @@ struct AppSettings: Codable, Equatable, Sendable {
     var teamPhrase: String
     var avoidsFullScreenApps: Bool
     var avoidsCalls: Bool
+    var soundEnabled: Bool
 
     init(
         displayName: String,
         teamPhrase: String,
         avoidsFullScreenApps: Bool = true,
-        avoidsCalls: Bool = true
+        avoidsCalls: Bool = true,
+        soundEnabled: Bool = false
     ) {
         self.displayName = displayName
         self.teamPhrase = teamPhrase
         self.avoidsFullScreenApps = avoidsFullScreenApps
         self.avoidsCalls = avoidsCalls
+        self.soundEnabled = soundEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -23,6 +26,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         case teamPhrase
         case avoidsFullScreenApps
         case avoidsCalls
+        case soundEnabled
     }
 
     init(from decoder: any Decoder) throws {
@@ -34,6 +38,7 @@ struct AppSettings: Codable, Equatable, Sendable {
             forKey: .avoidsFullScreenApps
         ) ?? true
         avoidsCalls = try container.decodeIfPresent(Bool.self, forKey: .avoidsCalls) ?? true
+        soundEnabled = try container.decodeIfPresent(Bool.self, forKey: .soundEnabled) ?? false
     }
 
     static func load(for instance: AppInstance, arguments: [String]) -> AppSettings {
@@ -49,7 +54,8 @@ struct AppSettings: Codable, Equatable, Sendable {
                 ? instance.teamPhrase
                 : persisted?.teamPhrase ?? instance.teamPhrase,
             avoidsFullScreenApps: persisted?.avoidsFullScreenApps ?? true,
-            avoidsCalls: persisted?.avoidsCalls ?? true
+            avoidsCalls: persisted?.avoidsCalls ?? true,
+            soundEnabled: persisted?.soundEnabled ?? false
         )
     }
 
@@ -62,7 +68,8 @@ struct AppSettings: Codable, Equatable, Sendable {
             displayName: options.displayName,
             teamPhrase: options.teamPhrase,
             avoidsFullScreenApps: avoidsFullScreenApps,
-            avoidsCalls: avoidsCalls
+            avoidsCalls: avoidsCalls,
+            soundEnabled: soundEnabled
         )
     }
 
