@@ -15,9 +15,11 @@ final class OverlayController {
         soundPlayer = OverlaySoundPlayer(sounds: resources.sounds)
     }
 
-    func show(soundEnabled: Bool) {
+    func show(soundEnabled: Bool, triggeredAt: Date = Date()) {
         dismiss()
         guard let screen = NSScreen.main else { return }
+
+        let bannerText = BannerLabel.text(for: triggeredAt)
 
         let window = OverlayWindow(
             contentRect: screen.frame,
@@ -45,7 +47,8 @@ final class OverlayController {
         window.orderFrontRegardless()
         let didStartAnimation = overlayView.animate(
             images: resources.images,
-            config: resources.animationConfig
+            config: resources.animationConfig,
+            bannerText: bannerText
         )
         if soundEnabled, didStartAnimation {
             soundPlayer.play(config: resources.animationConfig, viewportWidth: screen.frame.width)
@@ -74,6 +77,16 @@ final class OverlayController {
             NSEvent.removeMonitor(escapeKeyMonitor)
             self.escapeKeyMonitor = nil
         }
+    }
+}
+
+enum BannerLabel {
+    static func text(for date: Date, calendar: Calendar = .autoupdatingCurrent) -> String {
+        let components = calendar.dateComponents([.hour, .minute], from: date)
+        guard let hour = components.hour, let minute = components.minute else {
+            return "☕"
+        }
+        return String(format: "☕ %02d:%02d", hour, minute)
     }
 }
 
@@ -261,7 +274,7 @@ private final class OverlayView: NSView {
     }
 
     @discardableResult
-    func animate(images: ImageCache, config: AnimationConfig) -> Bool {
+    func animate(images: ImageCache, config: AnimationConfig, bannerText: String) -> Bool {
         guard
             let rootLayer = layer,
             let uprightImage = images[.truckUpright].cgImage(forProposedRect: nil, context: nil, hints: nil),
@@ -320,6 +333,7 @@ private final class OverlayView: NSView {
         bobLayer.addSublayer(bumpLayer)
         addBanner(
             to: bumpLayer,
+            text: bannerText,
             timelineStartTime: timelineStartTime,
             bumpTime: bumpTime,
             exitTime: exitTime,
@@ -431,6 +445,7 @@ private final class OverlayView: NSView {
 
     private func addBanner(
         to truckAssembly: CALayer,
+        text: String,
         timelineStartTime: CFTimeInterval,
         bumpTime: TimeInterval,
         exitTime: TimeInterval,
@@ -462,7 +477,7 @@ private final class OverlayView: NSView {
 
         let contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         let textLayer = makeCenteredTextLayer(
-            text: "☕ 10:30",
+            text: text,
             size: bannerLayer.bounds.size,
             contentsScale: contentsScale,
             font: NSFont.systemFont(ofSize: banner.height / 3, weight: .bold)
