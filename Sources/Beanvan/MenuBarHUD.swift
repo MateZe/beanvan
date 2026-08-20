@@ -119,18 +119,32 @@ enum MenuBarIconState {
     }
 }
 
-enum TimeComponentInput {
-    static func digits(from text: String) -> String {
-        String(text.filter { $0 >= "0" && $0 <= "9" }.prefix(2))
+enum ScheduleTimePicker {
+    static func date(for time: ScheduleTime, calendar: Calendar) -> Date {
+        calendar.date(from: DateComponents(
+            year: 2001,
+            month: 1,
+            day: 1,
+            hour: time.hour,
+            minute: time.minute
+        )) ?? Date(timeIntervalSinceReferenceDate: 0)
     }
 
-    static func normalized(
-        _ text: String,
-        maximum: Int,
-        fallback: Int
-    ) -> (value: Int, text: String) {
-        let value = min(max(Int(text) ?? fallback, 0), maximum)
-        return (value, String(format: "%02d", value))
+    static func time(from date: Date, calendar: Calendar) -> ScheduleTime {
+        let components = calendar.dateComponents([.hour, .minute], from: date)
+        return ScheduleTime(
+            hour: components.hour ?? 0,
+            minute: components.minute ?? 0
+        )
+    }
+}
+
+enum ProposalDisplay {
+    static func selected(
+        from proposals: [ActiveCoffeeProposal],
+        localInstanceID: UUID
+    ) -> ActiveCoffeeProposal? {
+        proposals.first { $0.proposal.proposer == localInstanceID } ?? proposals.first
     }
 }
 
@@ -201,7 +215,10 @@ struct CoffeePopover: View {
     @State private var isShowingSettings = false
 
     private var displayedProposal: ActiveCoffeeProposal? {
-        proposalStore.activeProposals.first
+        ProposalDisplay.selected(
+            from: proposalStore.activeProposals,
+            localInstanceID: proposalStore.localInstanceID
+        )
     }
 
     var body: some View {
@@ -272,10 +289,15 @@ private struct ProposalCard: View {
                             Text("\(countText) · \(expiryText(at: context.date))")
                         }
                         Spacer(minLength: 4)
-                        Button("Cancel") {
+                        Button {
                             proposalStore.cancel(proposal.id)
+                        } label: {
+                            Text("Cancel")
+                                .frame(minHeight: 28)
+                                .padding(.horizontal, 6)
+                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(InteractivePlainButtonStyle())
                         .foregroundStyle(BeanvanDesign.brandTeal)
                     }
                 } else {
@@ -473,10 +495,13 @@ private struct ScheduleEditor: View {
             if scheduleStore.schedule.entries.count < Schedule.maximumEntryCount {
                 Button(action: addEntry) {
                     Label("Add time", systemImage: "plus")
+                        .frame(minHeight: 28)
+                        .padding(.horizontal, 4)
+                        .contentShape(Rectangle())
                 }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.accentColor)
+                .buttonStyle(InteractivePlainButtonStyle())
+                .font(.system(size: 13))
+                .foregroundStyle(Color.accentColor)
             }
         }
     }
@@ -523,64 +548,34 @@ private struct ScheduleEntryRow: View {
     let updateTime: (ScheduleTime) -> Void
     let toggleWeekday: (Weekday) -> Void
     let remove: () -> Void
-    @State private var hourText: String
-    @State private var minuteText: String
-    @State private var hourIsFocused = false
-    @State private var minuteIsFocused = false
+    @State private var focusDismissalTask: Task<Void, Never>?
+
+    private var calendar: Calendar { .autoupdatingCurrent }
+
+    private var time: Binding<Date> {
+        Binding(
+            get: { ScheduleTimePicker.date(for: entry.time, calendar: calendar) },
+            set: {
+                updateTime(ScheduleTimePicker.time(from: $0, calendar: calendar))
+                scheduleFocusDismissal()
+            }
+        )
+    }
 
     private let weekdays: [Weekday] = [
         .sunday, .monday, .tuesday, .wednesday, .thursday, .friday, .saturday,
     ]
 
-    init(
-        entry: ScheduleEntry,
-        updateTime: @escaping (ScheduleTime) -> Void,
-        toggleWeekday: @escaping (Weekday) -> Void,
-        remove: @escaping () -> Void
-    ) {
-        self.entry = entry
-        self.updateTime = updateTime
-        self.toggleWeekday = toggleWeekday
-        self.remove = remove
-        _hourText = State(initialValue: String(format: "%02d", entry.time.hour))
-        _minuteText = State(initialValue: String(format: "%02d", entry.time.minute))
-    }
-
     var body: some View {
-        HStack(spacing: 6) {
-            HStack(spacing: 1) {
-                TimeComponentField(
-                    text: $hourText,
-                    isFocused: $hourIsFocused,
-                    maximum: 23,
-                    accessibilityLabel: "Hour",
-                    onCommit: { update(hour: $0) },
-                    onAdvance: {
-                        hourIsFocused = false
-                        minuteIsFocused = true
-                    }
-                )
-                Text(":")
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                TimeComponentField(
-                    text: $minuteText,
-                    isFocused: $minuteIsFocused,
-                    maximum: 59,
-                    accessibilityLabel: "Minute",
-                    onCommit: { update(minute: $0) },
-                    onAdvance: { minuteIsFocused = false }
-                )
-            }
-            .padding(.horizontal, 5)
-            .frame(width: 66, height: 24)
-            .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 5))
-            .overlay(
-                RoundedRectangle(cornerRadius: 5)
-                    .stroke(.quaternary, lineWidth: 1)
-            )
+        HStack(spacing: 4) {
+            DatePicker("Time", selection: time, displayedComponents: .hourAndMinute)
+                .labelsHidden()
+                .datePickerStyle(.field)
+                .controlSize(.small)
+                .frame(width: 72)
+                .accessibilityLabel("Coffee time")
 
-            HStack(spacing: 4) {
+            HStack(spacing: 0) {
                 ForEach(weekdays, id: \.self) { weekday in
                     WeekdayToggle(
                         weekday: weekday,
@@ -593,135 +588,24 @@ private struct ScheduleEntryRow: View {
             Button(action: remove) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .medium))
-                    .frame(width: 14, height: 20)
+                    .frame(width: 24, height: 28)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(InteractivePlainButtonStyle())
             .foregroundStyle(.secondary)
             .help("Remove time")
         }
-        .onChange(of: entry.time) { _, newTime in
-            if !hourIsFocused { hourText = String(format: "%02d", newTime.hour) }
-            if !minuteIsFocused { minuteText = String(format: "%02d", newTime.minute) }
+        .onDisappear {
+            focusDismissalTask?.cancel()
         }
     }
 
-    private func update(hour: Int? = nil, minute: Int? = nil) {
-        updateTime(ScheduleTime(
-            hour: hour ?? Int(hourText) ?? entry.time.hour,
-            minute: minute ?? Int(minuteText) ?? entry.time.minute
-        ))
-    }
-}
-
-private struct TimeComponentField: NSViewRepresentable {
-    @Binding var text: String
-    @Binding var isFocused: Bool
-    let maximum: Int
-    let accessibilityLabel: String
-    let onCommit: (Int) -> Void
-    let onAdvance: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(string: text)
-        field.delegate = context.coordinator
-        field.target = context.coordinator
-        field.action = #selector(Coordinator.submit)
-        field.isBordered = false
-        field.drawsBackground = false
-        field.focusRingType = .none
-        field.alignment = .center
-        field.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
-        field.maximumNumberOfLines = 1
-        field.setAccessibilityLabel(accessibilityLabel)
-        return field
-    }
-
-    func updateNSView(_ field: NSTextField, context: Context) {
-        context.coordinator.parent = self
-        if !isFocused {
-            context.coordinator.syncValidText(text)
-        }
-        if field.stringValue != text {
-            field.stringValue = text
-        }
-
-        if isFocused, field.window?.firstResponder !== field.currentEditor() {
-            field.window?.makeFirstResponder(field)
-        } else if !isFocused, field.window?.firstResponder === field.currentEditor() {
-            field.window?.makeFirstResponder(nil)
-        }
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: TimeComponentField
-        private var lastValidText: String
-        private var isAdvancing = false
-
-        init(parent: TimeComponentField) {
-            self.parent = parent
-            lastValidText = parent.text
-        }
-
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            parent.isFocused = true
-            guard let field = notification.object as? NSTextField else { return }
-            DispatchQueue.main.async {
-                field.currentEditor()?.selectAll(nil)
-            }
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            let digits = TimeComponentInput.digits(from: field.stringValue)
-            if field.stringValue != digits {
-                field.stringValue = digits
-            }
-            parent.text = digits
-
-            guard digits.count == 2, !isAdvancing else { return }
-            commit(field)
-            isAdvancing = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.parent.onAdvance()
-                self.isAdvancing = false
-            }
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            parent.isFocused = false
-            guard let field = notification.object as? NSTextField else { return }
-            commit(field)
-        }
-
-        @objc func submit(_ sender: NSTextField) {
-            commit(sender)
-            parent.onAdvance()
-        }
-
-        func syncValidText(_ text: String) {
-            lastValidText = text
-        }
-
-        private func commit(_ field: NSTextField) {
-            let fallback = Int(lastValidText) ?? 0
-            let result = TimeComponentInput.normalized(
-                field.stringValue,
-                maximum: parent.maximum,
-                fallback: fallback
-            )
-            let hasChanged = result.text != lastValidText
-            lastValidText = result.text
-            field.stringValue = result.text
-            parent.text = result.text
-            if hasChanged {
-                parent.onCommit(result.value)
-            }
+    private func scheduleFocusDismissal() {
+        focusDismissalTask?.cancel()
+        focusDismissalTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            NSApp.keyWindow?.makeFirstResponder(nil)
         }
     }
 }
@@ -733,18 +617,23 @@ private struct WeekdayToggle: View {
 
     var body: some View {
         Button(action: action) {
-            Text(WeekdayLabels.short(weekday))
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(isOn ? Color.white : .secondary)
-                .frame(width: 19, height: 19)
-                .background(isOn ? BeanvanDesign.brandTeal : Color.clear, in: Circle())
-                .overlay {
-                    if !isOn {
-                        Circle().stroke(.quaternary)
+            ZStack {
+                Circle()
+                    .fill(isOn ? BeanvanDesign.brandTeal : Color.clear)
+                    .overlay {
+                        if !isOn {
+                            Circle().stroke(.quaternary)
+                        }
                     }
-                }
+                    .frame(width: 20, height: 20)
+                Text(WeekdayLabels.short(weekday))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(isOn ? Color.white : .secondary)
+            }
+            .frame(width: 24, height: 28)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(InteractivePlainButtonStyle())
         .accessibilityLabel(WeekdayLabels.full(weekday))
         .accessibilityValue(isOn ? "Selected" : "Not selected")
     }
@@ -795,6 +684,8 @@ private struct ActionsSection: View {
             .toggleStyle(.switch)
             .controlSize(.small)
             .tint(BeanvanDesign.brandTeal)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .contentShape(Rectangle())
         }
     }
 }
@@ -817,21 +708,42 @@ private struct UtilityFooter: View {
     let showSettings: () -> Void
 
     var body: some View {
-        HStack {
-            Button("Preview", action: previewAnimation)
-            Spacer()
+        HStack(spacing: 0) {
+            Button(action: previewAnimation) {
+                Text("Preview")
+                    .frame(maxWidth: .infinity, minHeight: 28)
+                    .contentShape(Rectangle())
+            }
             Button(action: showSettings) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12, weight: .medium))
+                    .frame(maxWidth: .infinity, minHeight: 28)
+                    .contentShape(Rectangle())
             }
-                .help("Settings")
-            Spacer()
-            Button("Quit") { NSApp.terminate(nil) }
+            .help("Settings")
+            Button {
+                NSApp.terminate(nil)
+            } label: {
+                Text("Quit")
+                    .frame(maxWidth: .infinity, minHeight: 28)
+                    .contentShape(Rectangle())
+            }
                 .keyboardShortcut("q")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(InteractivePlainButtonStyle())
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(.secondary)
+    }
+}
+
+private struct InteractivePlainButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                configuration.isPressed ? Color.primary.opacity(0.08) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+            )
+            .opacity(configuration.isPressed ? 0.72 : 1)
     }
 }
 
@@ -866,9 +778,12 @@ private struct PopoverSettingsView: View {
                     Text("Settings")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.primary)
+                    Spacer()
                 }
+                .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(InteractivePlainButtonStyle())
 
             SettingsFields(
                 appModel: appModel,
@@ -952,6 +867,8 @@ private struct SettingsFields: View {
                 }
             ))
             .toggleStyle(.switch)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .contentShape(Rectangle())
 
             Toggle("Don't interrupt calls", isOn: Binding(
                 get: { appModel.avoidsCalls },
@@ -963,12 +880,16 @@ private struct SettingsFields: View {
                 }
             ))
             .toggleStyle(.switch)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .contentShape(Rectangle())
 
             Toggle("Sound", isOn: Binding(
                 get: { appModel.soundEnabled },
                 set: { appModel.setSoundEnabled($0) }
             ))
             .toggleStyle(.switch)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .contentShape(Rectangle())
 
             if let error = appModel.settingsError {
                 Text(error)
@@ -1003,7 +924,7 @@ private struct QuorumControl: View {
             quorumButton(systemImage: "plus", action: increment)
                 .disabled(value >= 10)
         }
-        .frame(height: 26)
+        .frame(height: 30)
         .background(.quinary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -1015,10 +936,10 @@ private struct QuorumControl: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 10, weight: .semibold))
-                .frame(width: 28, height: 26)
+                .frame(width: 32, height: 30)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(InteractivePlainButtonStyle())
         .foregroundStyle(.secondary)
         .accessibilityLabel(systemImage == "minus" ? "Decrease quorum" : "Increase quorum")
     }

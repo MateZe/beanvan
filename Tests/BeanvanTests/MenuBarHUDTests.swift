@@ -1,3 +1,4 @@
+import CoffeeProtocol
 import Foundation
 import Testing
 @testable import Beanvan
@@ -46,23 +47,43 @@ struct MenuBarHUDTests {
         #expect(MenuBarIconState.truckOpacity(isSkippingToday: true) == 0.4)
     }
 
-    @Test func timeInputKeepsTwoDigitsAndNormalizesComponents() {
-        #expect(TimeComponentInput.digits(from: "1a2b3") == "12")
+    @Test func timePickerRoundTripsScheduleTime() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 3_600)!
+        let expected = ScheduleTime(hour: 7, minute: 5)
 
-        let hour = TimeComponentInput.normalized("12", maximum: 23, fallback: 10)
-        #expect(hour.value == 12)
-        #expect(hour.text == "12")
+        let date = ScheduleTimePicker.date(for: expected, calendar: calendar)
 
-        let singleMinute = TimeComponentInput.normalized("5", maximum: 59, fallback: 30)
-        #expect(singleMinute.value == 5)
-        #expect(singleMinute.text == "05")
+        #expect(ScheduleTimePicker.time(from: date, calendar: calendar) == expected)
+    }
 
-        let clampedHour = TimeComponentInput.normalized("29", maximum: 23, fallback: 10)
-        #expect(clampedHour.value == 23)
-        #expect(clampedHour.text == "23")
+    @Test func localProposalIsDisplayedBeforeAnOlderRemoteProposal() {
+        let localID = UUID()
+        let remoteID = UUID()
+        let remote = activeProposal(proposer: remoteID, createdAt: 1_000)
+        let local = activeProposal(proposer: localID, createdAt: 2_000)
 
-        let empty = TimeComponentInput.normalized("", maximum: 59, fallback: 30)
-        #expect(empty.value == 30)
-        #expect(empty.text == "30")
+        let displayed = ProposalDisplay.selected(
+            from: [remote, local],
+            localInstanceID: localID
+        )
+
+        #expect(displayed?.id == local.id)
+    }
+
+    private func activeProposal(
+        proposer: UUID,
+        createdAt: EpochMilliseconds
+    ) -> ActiveCoffeeProposal {
+        ActiveCoffeeProposal(
+            proposal: Proposal(
+                id: UUID(),
+                proposer: proposer,
+                createdAt: createdAt,
+                expiresAt: createdAt + 5 * 60 * 1_000
+            ),
+            proposerName: "Test",
+            participantIDs: [proposer]
+        )
     }
 }

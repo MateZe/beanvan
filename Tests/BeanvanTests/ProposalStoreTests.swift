@@ -75,6 +75,8 @@ struct ProposalStoreTests {
             #expect(store.activeProposals.first?.proposerName == "Marko")
             #expect(store.activeProposals.first?.participantCount == 1)
             #expect(store.hasIncomingProposalSignal)
+            #expect(store.canPropose)
+            #expect(store.nextProposalDate == nil)
         }
     }
 
