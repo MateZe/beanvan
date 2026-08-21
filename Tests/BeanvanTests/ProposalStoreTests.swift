@@ -54,7 +54,7 @@ struct ProposalStoreTests {
         }
     }
 
-    @Test func receivingProposalIsQuietAndDuplicateIsIgnored() throws {
+    @Test func receivingProposalUpdatesSignalAndDuplicateIsIgnored() throws {
         try withFixture { instance, transport, _ in
             let store = try ProposalStore(instance: instance, transport: transport, now: { 1_000 })
             var fireCount = 0
@@ -77,6 +77,50 @@ struct ProposalStoreTests {
             #expect(store.hasIncomingProposalSignal)
             #expect(store.canPropose)
             #expect(store.nextProposalDate == nil)
+        }
+    }
+
+    @Test func receivingProposalReportsItOnceForNotification() throws {
+        try withFixture { instance, transport, _ in
+            let store = try ProposalStore(instance: instance, transport: transport, now: { 1_000 })
+            var incoming: [ActiveCoffeeProposal] = []
+            store.start(onFire: {}, onIncomingProposal: { incoming.append($0) })
+            let proposal = Proposal(
+                id: UUID(),
+                proposer: proposerID,
+                createdAt: 900,
+                expiresAt: 300_900
+            )
+            let envelope = try signed(.proposal(proposal), senderID: proposerID, name: "Marko")
+
+            transport.receive(envelope)
+            transport.receive(envelope)
+
+            #expect(incoming.count == 1)
+            #expect(incoming.first?.id == proposal.id)
+            #expect(incoming.first?.proposerName == "Marko")
+        }
+    }
+
+    @Test func proposalReceivedBeforeStartIsReportedWhenCallbacksAttach() throws {
+        try withFixture { instance, transport, _ in
+            let store = try ProposalStore(instance: instance, transport: transport, now: { 1_000 })
+            let proposal = Proposal(
+                id: UUID(),
+                proposer: proposerID,
+                createdAt: 900,
+                expiresAt: 300_900
+            )
+            transport.receive(try signed(
+                .proposal(proposal),
+                senderID: proposerID,
+                name: "Marko"
+            ))
+            var incoming: [ActiveCoffeeProposal] = []
+
+            store.start(onFire: {}, onIncomingProposal: { incoming.append($0) })
+
+            #expect(incoming.map(\.id) == [proposal.id])
         }
     }
 

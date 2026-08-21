@@ -74,9 +74,11 @@ final class ProposalStore: ObservableObject {
     private var acceptedProposalIDs = Set<UUID>()
     private var canceledProposalExpirations: [UUID: EpochMilliseconds] = [:]
     private var pendingFireIDs: [UUID] = []
+    private var pendingIncomingProposals: [ActiveCoffeeProposal] = []
     private var lastProposalAt: EpochMilliseconds?
     private var stateTimer: Timer?
     private var onFire: (() -> Void)?
+    private var onIncomingProposal: ((ActiveCoffeeProposal) -> Void)?
 
     init(
         instance: AppInstance,
@@ -113,19 +115,27 @@ final class ProposalStore: ObservableObject {
         }
     }
 
-    func start(onFire: @escaping () -> Void) {
+    func start(
+        onFire: @escaping () -> Void,
+        onIncomingProposal: @escaping (ActiveCoffeeProposal) -> Void = { _ in }
+    ) {
         self.onFire = onFire
+        self.onIncomingProposal = onIncomingProposal
         let count = pendingFireIDs.count
         pendingFireIDs.removeAll()
         for _ in 0..<count {
             onFire()
         }
+        let proposals = pendingIncomingProposals
+        pendingIncomingProposals.removeAll()
+        proposals.forEach(onIncomingProposal)
     }
 
     func stop() {
         stateTimer?.invalidate()
         stateTimer = nil
         onFire = nil
+        onIncomingProposal = nil
     }
 
     @discardableResult
@@ -213,6 +223,7 @@ final class ProposalStore: ObservableObject {
             acceptedProposalIDs.removeAll()
             canceledProposalExpirations.removeAll()
             pendingFireIDs.removeAll()
+            pendingIncomingProposals.removeAll()
             publishActiveProposals()
         }
         self.instance = instance
@@ -322,6 +333,18 @@ final class ProposalStore: ObservableObject {
         )
         activeIDByProposer[proposal.proposer] = proposal.id
         publishActiveProposals()
+        if proposal.proposer != instance.id {
+            let activeProposal = ActiveCoffeeProposal(
+                proposal: proposal,
+                proposerName: proposerName,
+                participantIDs: participants
+            )
+            if let onIncomingProposal {
+                onIncomingProposal(activeProposal)
+            } else {
+                pendingIncomingProposals.append(activeProposal)
+            }
+        }
         evaluateQuorum(for: proposal.id)
     }
 

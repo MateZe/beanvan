@@ -47,6 +47,48 @@ struct MenuBarHUDTests {
         #expect(MenuBarIconState.truckOpacity(isSkippingToday: true) == 0.4)
     }
 
+    @Test func iconBouncesOnlyWhenAProposalIsAdded() {
+        let first = UUID()
+        let second = UUID()
+
+        #expect(MenuBarIconState.shouldBounce(
+            previousProposalIDs: [],
+            currentProposalIDs: [first]
+        ))
+        #expect(MenuBarIconState.shouldBounce(
+            previousProposalIDs: [first],
+            currentProposalIDs: [first, second]
+        ))
+        #expect(!MenuBarIconState.shouldBounce(
+            previousProposalIDs: [first, second],
+            currentProposalIDs: [second]
+        ))
+        #expect(!MenuBarIconState.shouldBounce(
+            previousProposalIDs: [first],
+            currentProposalIDs: [first]
+        ))
+    }
+
+    @MainActor
+    @Test func proposalBadgeAndBounceAreBakedIntoDistinctTemplateImages() throws {
+        let idle = try #require(TruckTemplateImage.image(
+            steam: false,
+            proposal: false
+        ).tiffRepresentation)
+        let proposal = try #require(TruckTemplateImage.image(
+            steam: false,
+            proposal: true
+        ).tiffRepresentation)
+        let bounced = try #require(TruckTemplateImage.image(
+            steam: false,
+            proposal: true,
+            bounceFrame: 1
+        ).tiffRepresentation)
+
+        #expect(proposal != idle)
+        #expect(bounced != proposal)
+    }
+
     @Test func timePickerRoundTripsScheduleTime() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 3_600)!

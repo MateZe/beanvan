@@ -68,6 +68,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var avoidsFullScreenApps = true
     @Published private(set) var avoidsCalls = true
     @Published private(set) var soundEnabled = false
+    @Published private(set) var proposalNotificationsEnabled = true
+    @Published private(set) var launchAtLoginEnabled = false
     @Published private(set) var settingsError: String?
 
     private var instance: AppInstance?
@@ -100,6 +102,8 @@ final class AppModel: ObservableObject {
             avoidsFullScreenApps = settings.avoidsFullScreenApps
             avoidsCalls = settings.avoidsCalls
             soundEnabled = settings.soundEnabled
+            proposalNotificationsEnabled = settings.proposalNotificationsEnabled
+            launchAtLoginEnabled = LaunchAtLogin.isEnabled
             peerManager = manager
             self.scheduleStore = scheduleStore
             self.scheduler = scheduler
@@ -127,7 +131,8 @@ final class AppModel: ObservableObject {
                 teamPhrase: teamPhrase,
                 avoidsFullScreenApps: avoidsFullScreenApps,
                 avoidsCalls: avoidsCalls,
-                soundEnabled: soundEnabled
+                soundEnabled: soundEnabled,
+                proposalNotificationsEnabled: proposalNotificationsEnabled
             ).validated()
             guard settings.displayName != oldInstance.displayName
                     || settings.teamPhrase != oldInstance.teamPhrase else {
@@ -151,7 +156,8 @@ final class AppModel: ObservableObject {
                     teamPhrase: oldInstance.teamPhrase,
                     avoidsFullScreenApps: avoidsFullScreenApps,
                     avoidsCalls: avoidsCalls,
-                    soundEnabled: soundEnabled
+                    soundEnabled: soundEnabled,
+                    proposalNotificationsEnabled: proposalNotificationsEnabled
                 ).persist(for: oldInstance)
                 throw error
             }
@@ -178,7 +184,8 @@ final class AppModel: ObservableObject {
                 teamPhrase: teamPhrase,
                 avoidsFullScreenApps: avoidsFullScreenApps,
                 avoidsCalls: avoidsCalls,
-                soundEnabled: soundEnabled
+                soundEnabled: soundEnabled,
+                proposalNotificationsEnabled: proposalNotificationsEnabled
             ).persist(for: instance)
             settingsError = nil
         } catch {
@@ -198,13 +205,54 @@ final class AppModel: ObservableObject {
                 teamPhrase: teamPhrase,
                 avoidsFullScreenApps: avoidsFullScreenApps,
                 avoidsCalls: avoidsCalls,
-                soundEnabled: enabled
+                soundEnabled: enabled,
+                proposalNotificationsEnabled: proposalNotificationsEnabled
             ).persist(for: instance)
             settingsError = nil
         } catch {
             soundEnabled = oldValue
             settingsError = error.localizedDescription
         }
+    }
+
+    func setProposalNotificationsEnabled(_ enabled: Bool) {
+        guard let instance else { return }
+        let oldValue = proposalNotificationsEnabled
+        proposalNotificationsEnabled = enabled
+        do {
+            try AppSettings(
+                displayName: displayName,
+                teamPhrase: teamPhrase,
+                avoidsFullScreenApps: avoidsFullScreenApps,
+                avoidsCalls: avoidsCalls,
+                soundEnabled: soundEnabled,
+                proposalNotificationsEnabled: enabled
+            ).persist(for: instance)
+            if enabled {
+                ProposalNotifier.shared.requestAuthorization()
+            }
+            settingsError = nil
+        } catch {
+            proposalNotificationsEnabled = oldValue
+            settingsError = error.localizedDescription
+        }
+    }
+
+    func setLaunchAtLoginEnabled(_ enabled: Bool) {
+        do {
+            try LaunchAtLogin.setEnabled(enabled)
+            launchAtLoginEnabled = LaunchAtLogin.isEnabled
+            settingsError = enabled && !launchAtLoginEnabled
+                ? "Allow Beanvan in System Settings > General > Login Items."
+                : nil
+        } catch {
+            launchAtLoginEnabled = LaunchAtLogin.isEnabled
+            settingsError = error.localizedDescription
+        }
+    }
+
+    func refreshLaunchAtLoginStatus() {
+        launchAtLoginEnabled = LaunchAtLogin.isEnabled
     }
 }
 
@@ -217,18 +265,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         overlayController = OverlayController(resources: AppResources.shared)
         firingGate = FiringGate()
+        if AppModel.shared.proposalNotificationsEnabled {
+            ProposalNotifier.shared.requestAuthorization()
+        }
         AppModel.shared.scheduler?.start { [weak self] in
             self?.showAutomaticOverlayIfAllowed()
         }
-        AppModel.shared.proposalStore?.start { [weak self] in
-            self?.showAutomaticOverlayIfAllowed()
-        }
+        AppModel.shared.proposalStore?.start(
+            onFire: { [weak self] in
+                self?.showAutomaticOverlayIfAllowed()
+            },
+            onIncomingProposal: { proposal in
+                guard AppModel.shared.proposalNotificationsEnabled else { return }
+                ProposalNotifier.shared.notify(about: proposal)
+            }
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         AppModel.shared.scheduler?.stop()
         AppModel.shared.proposalStore?.stop()
         AppModel.shared.peerManager?.stop()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        AppModel.shared.refreshLaunchAtLoginStatus()
     }
 
     func previewAnimation() {

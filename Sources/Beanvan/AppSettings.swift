@@ -6,19 +6,22 @@ struct AppSettings: Codable, Equatable, Sendable {
     var avoidsFullScreenApps: Bool
     var avoidsCalls: Bool
     var soundEnabled: Bool
+    var proposalNotificationsEnabled: Bool
 
     init(
         displayName: String,
         teamPhrase: String,
         avoidsFullScreenApps: Bool = true,
         avoidsCalls: Bool = true,
-        soundEnabled: Bool = false
+        soundEnabled: Bool = false,
+        proposalNotificationsEnabled: Bool = true
     ) {
         self.displayName = displayName
         self.teamPhrase = teamPhrase
         self.avoidsFullScreenApps = avoidsFullScreenApps
         self.avoidsCalls = avoidsCalls
         self.soundEnabled = soundEnabled
+        self.proposalNotificationsEnabled = proposalNotificationsEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -27,6 +30,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         case avoidsFullScreenApps
         case avoidsCalls
         case soundEnabled
+        case proposalNotificationsEnabled
     }
 
     init(from decoder: any Decoder) throws {
@@ -39,6 +43,10 @@ struct AppSettings: Codable, Equatable, Sendable {
         ) ?? true
         avoidsCalls = try container.decodeIfPresent(Bool.self, forKey: .avoidsCalls) ?? true
         soundEnabled = try container.decodeIfPresent(Bool.self, forKey: .soundEnabled) ?? false
+        proposalNotificationsEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .proposalNotificationsEnabled
+        ) ?? true
     }
 
     static func load(for instance: AppInstance, arguments: [String]) -> AppSettings {
@@ -55,7 +63,8 @@ struct AppSettings: Codable, Equatable, Sendable {
                 : persisted?.teamPhrase ?? instance.teamPhrase,
             avoidsFullScreenApps: persisted?.avoidsFullScreenApps ?? true,
             avoidsCalls: persisted?.avoidsCalls ?? true,
-            soundEnabled: persisted?.soundEnabled ?? false
+            soundEnabled: persisted?.soundEnabled ?? false,
+            proposalNotificationsEnabled: persisted?.proposalNotificationsEnabled ?? true
         )
     }
 
@@ -69,7 +78,8 @@ struct AppSettings: Codable, Equatable, Sendable {
             teamPhrase: options.teamPhrase,
             avoidsFullScreenApps: avoidsFullScreenApps,
             avoidsCalls: avoidsCalls,
-            soundEnabled: soundEnabled
+            soundEnabled: soundEnabled,
+            proposalNotificationsEnabled: proposalNotificationsEnabled
         )
     }
 

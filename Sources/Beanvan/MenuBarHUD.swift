@@ -21,17 +21,51 @@ enum BeanvanDesign {
 
 @MainActor
 enum TruckTemplateImage {
-    private static let idle = makeImage(steam: false)
-    private static let steaming = makeImage(steam: true)
-
-    static func image(steam: Bool) -> NSImage {
-        steam ? steaming : idle
+    private struct ImageKey: Hashable {
+        let steam: Bool
+        let proposal: Bool
+        let bounceFrame: Int
     }
 
-    private static func makeImage(steam: Bool) -> NSImage {
-        let image = NSImage(size: NSSize(width: 22, height: 16), flipped: false) { _ in
+    private static var cache: [ImageKey: NSImage] = [:]
+    private static let bounceOffsets: [CGFloat] = [0, 2.2, 0.6, 1.5, 0]
+
+    static func image(
+        steam: Bool,
+        proposal: Bool = false,
+        bounceFrame: Int = 0
+    ) -> NSImage {
+        let key = ImageKey(
+            steam: steam,
+            proposal: proposal,
+            bounceFrame: bounceFrame
+        )
+        if let cached = cache[key] {
+            return cached
+        }
+        let image = makeImage(
+            steam: steam,
+            proposal: proposal,
+            bounceOffset: bounceOffsets.indices.contains(key.bounceFrame)
+                ? bounceOffsets[key.bounceFrame]
+                : bounceOffsets[0]
+        )
+        cache[key] = image
+        return image
+    }
+
+    private static func makeImage(
+        steam: Bool,
+        proposal: Bool,
+        bounceOffset: CGFloat
+    ) -> NSImage {
+        let image = NSImage(size: NSSize(width: 26, height: 22), flipped: false) { _ in
             NSColor.black.setFill()
             NSColor.black.setStroke()
+            NSGraphicsContext.saveGraphicsState()
+            let transform = NSAffineTransform()
+            transform.translateX(by: 2, yBy: 1 + bounceOffset)
+            transform.concat()
 
             let body = NSBezierPath()
             body.move(to: NSPoint(x: 1.2, y: 4.4))
@@ -84,16 +118,23 @@ enum TruckTemplateImage {
             if steam {
                 for x in [7.1, 9.7] {
                     let line = NSBezierPath()
-                    line.move(to: NSPoint(x: x, y: 15.8))
+                    line.move(to: NSPoint(x: x, y: 15.3))
                     line.curve(
-                        to: NSPoint(x: x + 0.3, y: 15.8),
-                        controlPoint1: NSPoint(x: x - 0.5, y: 14.5),
-                        controlPoint2: NSPoint(x: x + 0.8, y: 15.1)
+                        to: NSPoint(x: x + 0.2, y: 18.1),
+                        controlPoint1: NSPoint(x: x - 1, y: 16.1),
+                        controlPoint2: NSPoint(x: x + 1.1, y: 17.2)
                     )
-                    line.lineWidth = 1
+                    line.lineWidth = 1.3
                     line.lineCapStyle = .round
                     line.stroke()
                 }
+            }
+            NSGraphicsContext.restoreGraphicsState()
+
+            if proposal {
+                NSBezierPath(
+                    ovalIn: NSRect(x: 19, y: 15, width: 7, height: 7)
+                ).fill()
             }
             return true
         }
@@ -116,6 +157,13 @@ enum MenuBarIconState {
 
     static func truckOpacity(isSkippingToday: Bool) -> Double {
         isSkippingToday ? 0.4 : 1
+    }
+
+    static func shouldBounce(
+        previousProposalIDs: [UUID],
+        currentProposalIDs: [UUID]
+    ) -> Bool {
+        !Set(currentProposalIDs).subtracting(previousProposalIDs).isEmpty
     }
 }
 
@@ -152,41 +200,48 @@ struct MenuBarTruckIcon: View {
     @ObservedObject var peerManager: PeerManager
     @ObservedObject var scheduler: ScheduleFiringScheduler
     @ObservedObject var proposalStore: ProposalStore
-    @State private var bounceScale = 1.0
+    @State private var bounceFrame = 0
+    @State private var bounceTask: Task<Void, Never>?
     @State private var currentDate = Date()
-    @Environment(\.colorScheme) private var colorScheme
 
     private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Image(nsImage: TruckTemplateImage.image(
-                steam: shouldShowSteam(at: currentDate)
-            ))
+        Image(nsImage: TruckTemplateImage.image(
+            steam: shouldShowSteam(at: currentDate),
+            proposal: !proposalStore.activeProposals.isEmpty,
+            bounceFrame: bounceFrame
+        ))
             .opacity(MenuBarIconState.truckOpacity(
                 isSkippingToday: scheduler.isSkippingToday
             ))
-            .scaleEffect(bounceScale)
-
-            if !proposalStore.activeProposals.isEmpty {
-                Circle()
-                    .fill(colorScheme == .dark
-                        ? BeanvanDesign.darkMenuBarTeal
-                        : BeanvanDesign.brandTeal)
-                    .frame(width: 5, height: 5)
-                    .offset(x: 1, y: -1)
-            }
-        }
-        .frame(width: 23, height: 18)
+        .frame(width: 26, height: 22)
         .onReceive(clock) { currentDate = $0 }
-        .onChange(of: proposalStore.hasIncomingProposalSignal) { wasActive, isActive in
-            guard isActive, !wasActive else { return }
-            bounceScale = 0.82
-            withAnimation(.spring(duration: 0.4, bounce: 0.28)) {
-                bounceScale = 1
-            }
+        .onChange(of: proposalStore.activeProposals.map(\.id)) { previous, current in
+            guard MenuBarIconState.shouldBounce(
+                previousProposalIDs: previous,
+                currentProposalIDs: current
+            ) else { return }
+            animateBounce()
+        }
+        .onDisappear {
+            bounceTask?.cancel()
         }
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    private func animateBounce() {
+        bounceTask?.cancel()
+        bounceTask = Task { @MainActor in
+            for _ in 0..<2 {
+                for frame in 1...4 {
+                    bounceFrame = frame
+                    try? await Task.sleep(for: .milliseconds(90))
+                    guard !Task.isCancelled else { return }
+                }
+            }
+            bounceFrame = 0
+        }
     }
 
     private func shouldShowSteam(at date: Date) -> Bool {
@@ -856,6 +911,22 @@ private struct SettingsFields: View {
             }
 
             Divider()
+
+            Toggle("Launch at Login", isOn: Binding(
+                get: { appModel.launchAtLoginEnabled },
+                set: { appModel.setLaunchAtLoginEnabled($0) }
+            ))
+            .toggleStyle(.switch)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .contentShape(Rectangle())
+
+            Toggle("Proposal notifications", isOn: Binding(
+                get: { appModel.proposalNotificationsEnabled },
+                set: { appModel.setProposalNotificationsEnabled($0) }
+            ))
+            .toggleStyle(.switch)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .contentShape(Rectangle())
 
             Toggle("Don't interrupt full-screen apps", isOn: Binding(
                 get: { appModel.avoidsFullScreenApps },

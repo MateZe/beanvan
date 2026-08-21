@@ -36,7 +36,9 @@ Launch Beanvan and click the truck in the menu bar. Choose a display name and a 
 
 Use the schedule editor to choose recurring coffee times and weekdays. Changes synchronize across the team. For an unscheduled break, select **Propose coffee now**. The animation runs for participants when the proposal reaches the configured quorum.
 
-Beanvan can skip scheduled breaks for the day and avoid interrupting full-screen apps or supported meeting apps. These preferences apply only to your Mac.
+Teammates receive a native macOS notification when a new proposal arrives, in addition to the indicator on the menu-bar truck. Proposal notifications can be turned off in **Settings**.
+
+Beanvan can launch automatically when you log in, skip scheduled breaks for the day, and avoid interrupting full-screen apps or supported meeting apps. These preferences apply only to your Mac and can be changed in **Settings**.
 
 ## Security and privacy
 
