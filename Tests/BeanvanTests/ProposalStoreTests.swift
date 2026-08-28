@@ -193,6 +193,39 @@ struct ProposalStoreTests {
         }
     }
 
+    @Test func observerKeepsProposalWhenOthersMeetLocalQuorum() throws {
+        try withFixture { instance, transport, _ in
+            let store = try ProposalStore(
+                instance: instance,
+                transport: transport,
+                quorumThreshold: 2,
+                now: { 1_000 }
+            )
+            var fireCount = 0
+            store.start { fireCount += 1 }
+            let proposal = Proposal(
+                id: UUID(),
+                proposer: proposerID,
+                createdAt: 900,
+                expiresAt: 300_900
+            )
+            transport.receive(try signed(.proposal(proposal), senderID: proposerID, name: "Marko"))
+            transport.receive(try signed(
+                .accept(Accept(proposalID: proposal.id, accepter: accepterID)),
+                senderID: accepterID,
+                name: "Ana"
+            ))
+
+            #expect(store.activeProposals.first?.participantCount == 2)
+            #expect(fireCount == 0)
+
+            store.accept(proposal.id)
+
+            #expect(store.activeProposals.isEmpty)
+            #expect(fireCount == 1)
+        }
+    }
+
     @Test func proposerCancellationBroadcastsAndClearsRemoteProposal() throws {
         try withFixture { instance, transport, _ in
             let store = try ProposalStore(instance: instance, transport: transport, now: { 1_000 })

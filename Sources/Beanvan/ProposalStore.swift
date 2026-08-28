@@ -351,6 +351,7 @@ final class ProposalStore: ObservableObject {
     private func evaluateQuorum(for proposalID: UUID) {
         guard let record = records[proposalID],
               !isExpired(record.proposal, at: now()),
+              record.participantIDs.contains(instance.id),
               quorumMet(
                 proposal: record.proposal,
                 accepts: record.participantIDs.map {
@@ -359,12 +360,10 @@ final class ProposalStore: ObservableObject {
                 threshold: quorumThreshold
               ) else { return }
 
-        if record.participantIDs.contains(instance.id) {
-            if let onFire {
-                onFire()
-            } else {
-                pendingFireIDs.append(proposalID)
-            }
+        if let onFire {
+            onFire()
+        } else {
+            pendingFireIDs.append(proposalID)
         }
         removeProposal(proposalID)
     }

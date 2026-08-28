@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ServiceManagement
 import UserNotifications
@@ -26,6 +27,7 @@ final class ProposalNotifier: NSObject, UNUserNotificationCenterDelegate, @unche
         subsystem: "com.josipmusa.beanvan",
         category: "notifications"
     )
+    var onProposalSelected: (@MainActor @Sendable () -> Void)?
 
     init(center: UNUserNotificationCenter = .current()) {
         self.center = center
@@ -49,6 +51,7 @@ final class ProposalNotifier: NSObject, UNUserNotificationCenterDelegate, @unche
         content.body = "\(proposal.proposerName) is looking for coffee company. Open Beanvan to join."
         content.sound = .default
         content.threadIdentifier = "coffee-proposals"
+        content.userInfo = ["proposalID": proposal.id.uuidString]
 
         let request = UNNotificationRequest(
             identifier: "proposal-\(proposal.id.uuidString)",
@@ -70,5 +73,41 @@ final class ProposalNotifier: NSObject, UNUserNotificationCenterDelegate, @unche
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+              response.notification.request.content.userInfo["proposalID"] is String else {
+            completionHandler()
+            return
+        }
+        completionHandler()
+        Task { @MainActor [weak self] in
+            self?.onProposalSelected?()
+        }
+    }
+}
+
+@MainActor
+enum MenuBarExtraPresenter {
+    @discardableResult
+    static func show(in windows: [NSWindow] = NSApp.windows) -> Bool {
+        guard let button = windows.lazy.compactMap({ window in
+            statusBarButton(in: window.contentView)
+        }).first else { return false }
+        button.performClick(nil)
+        return true
+    }
+
+    private static func statusBarButton(in view: NSView?) -> NSStatusBarButton? {
+        guard let view else { return nil }
+        if let button = view as? NSStatusBarButton {
+            return button
+        }
+        return view.subviews.lazy.compactMap(statusBarButton(in:)).first
     }
 }

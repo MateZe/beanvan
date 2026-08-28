@@ -265,6 +265,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         overlayController = OverlayController(resources: AppResources.shared)
         firingGate = FiringGate()
+        ProposalNotifier.shared.onProposalSelected = {
+            NSApp.activate()
+            MenuBarExtraPresenter.show()
+        }
         if AppModel.shared.proposalNotificationsEnabled {
             ProposalNotifier.shared.requestAuthorization()
         }
@@ -283,6 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        ProposalNotifier.shared.onProposalSelected = nil
         AppModel.shared.scheduler?.stop()
         AppModel.shared.proposalStore?.stop()
         AppModel.shared.peerManager?.stop()
