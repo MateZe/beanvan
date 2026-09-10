@@ -75,6 +75,8 @@ final class ScheduleFiringScheduler: NSObject, ObservableObject {
     private let logger = Logger(subsystem: "com.josipmusa.beanvan", category: "scheduler")
 
     private var scheduleCancellable: AnyCancellable?
+    private var notificationObservers: [NSObjectProtocol] = []
+    private var workspaceNotificationObservers: [NSObjectProtocol] = []
     private var fireTimer: Timer?
     private var midnightTimer: Timer?
     private var skippedDay: LocalDay?
@@ -123,36 +125,38 @@ final class ScheduleFiringScheduler: NSObject, ObservableObject {
             .sink { [weak self] updatedSchedule in
                 self?.rearmForCurrentState(using: updatedSchedule)
             }
-        notificationCenter.addObserver(
-            self,
-            selector: #selector(systemTimeChanged),
-            name: .NSSystemClockDidChange,
-            object: nil
-        )
-        notificationCenter.addObserver(
-            self,
-            selector: #selector(systemTimeChanged),
-            name: .NSSystemTimeZoneDidChange,
-            object: nil
-        )
-        notificationCenter.addObserver(
-            self,
-            selector: #selector(systemTimeChanged),
-            name: .NSCalendarDayChanged,
-            object: nil
-        )
-        workspaceNotificationCenter.addObserver(
-            self,
-            selector: #selector(workspaceWillSleep),
-            name: NSWorkspace.willSleepNotification,
-            object: nil
-        )
-        workspaceNotificationCenter.addObserver(
-            self,
-            selector: #selector(workspaceDidWake),
-            name: NSWorkspace.didWakeNotification,
-            object: nil
-        )
+        notificationObservers = [
+            .NSSystemClockDidChange,
+            .NSSystemTimeZoneDidChange,
+            .NSCalendarDayChanged,
+        ].map { name in
+            notificationCenter.addObserver(forName: name, object: nil, queue: .main) {
+                [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.systemTimeChanged()
+                }
+            }
+        }
+        workspaceNotificationObservers = [
+            workspaceNotificationCenter.addObserver(
+                forName: NSWorkspace.willSleepNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.workspaceWillSleep()
+                }
+            },
+            workspaceNotificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.workspaceDidWake()
+                }
+            },
+        ]
         rearmForCurrentState()
     }
 
@@ -164,8 +168,10 @@ final class ScheduleFiringScheduler: NSObject, ObservableObject {
         midnightTimer?.invalidate()
         midnightTimer = nil
         scheduleCancellable = nil
-        notificationCenter.removeObserver(self)
-        workspaceNotificationCenter.removeObserver(self)
+        notificationObservers.forEach(notificationCenter.removeObserver)
+        notificationObservers.removeAll()
+        workspaceNotificationObservers.forEach(workspaceNotificationCenter.removeObserver)
+        workspaceNotificationObservers.removeAll()
         onFire = nil
     }
 
@@ -180,17 +186,17 @@ final class ScheduleFiringScheduler: NSObject, ObservableObject {
         armMidnightReset()
     }
 
-    @objc private func workspaceWillSleep() {
+    private func workspaceWillSleep() {
         fireTimer?.invalidate()
         fireTimer = nil
         nextFireDate = nil
     }
 
-    @objc private func workspaceDidWake() {
+    private func workspaceDidWake() {
         rearmForCurrentState()
     }
 
-    @objc private func systemTimeChanged() {
+    private func systemTimeChanged() {
         rearmForCurrentState()
     }
 
