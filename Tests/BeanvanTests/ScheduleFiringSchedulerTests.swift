@@ -145,7 +145,7 @@ struct ScheduleFiringSchedulerTests {
         )))
     }
 
-    @Test func skipTodayPausesAdvertisingAndResetsOnTheNextLocalDay() throws {
+    @Test func skipTodayPausesAdvertisingAndResetsOnTheNextLocalDay() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("Beanvan-SchedulerTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -187,7 +187,12 @@ struct ScheduleFiringSchedulerTests {
         #expect(peers.advertisingStates.last == false)
 
         currentDate = try #require(calendar.date(byAdding: .day, value: 1, to: currentDate))
-        notifications.post(name: .NSCalendarDayChanged, object: nil)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                notifications.post(name: .NSCalendarDayChanged, object: nil)
+                continuation.resume()
+            }
+        }
 
         #expect(!scheduler.isSkippingToday)
         #expect(peers.advertisingStates.last == true)
