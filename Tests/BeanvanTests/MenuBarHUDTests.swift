@@ -4,6 +4,11 @@ import Testing
 @testable import Beanvan
 
 struct MenuBarHUDTests {
+    @MainActor
+    @Test func popoverHasStableViewportSizeForTahoeMenuBarWindows() {
+        #expect(BeanvanDesign.popoverSize == CGSize(width: 320, height: 475))
+    }
+
     @Test func iconMovesFromIdleToSteamAndBackAtFire() {
         let fireDate = Date(timeIntervalSince1970: 1_000)
 
