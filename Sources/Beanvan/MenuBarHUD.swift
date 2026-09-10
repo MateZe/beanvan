@@ -16,7 +16,7 @@ enum BeanvanDesign {
             : NSColor(srgbRed: 0.84, green: 0.95, blue: 0.92, alpha: 1)
     })
     static let darkMenuBarTeal = Color(red: 0.35, green: 0.82, blue: 0.68)
-    static let popoverWidth: CGFloat = 320
+    static let popoverSize = CGSize(width: 320, height: 475)
 }
 
 @MainActor
@@ -314,7 +314,11 @@ struct CoffeePopover: View {
                 }
             }
         }
-        .frame(width: BeanvanDesign.popoverWidth)
+        .frame(
+            width: BeanvanDesign.popoverSize.width,
+            height: BeanvanDesign.popoverSize.height,
+            alignment: .topLeading
+        )
         .background(.regularMaterial)
         .animation(.easeOut(duration: 0.2), value: displayedProposal?.id)
         .animation(.easeOut(duration: 0.18), value: isShowingSettings)
@@ -849,7 +853,7 @@ private struct PopoverSettingsView: View {
             )
         }
         .padding(16)
-        .frame(width: BeanvanDesign.popoverWidth, alignment: .topLeading)
+        .frame(width: BeanvanDesign.popoverSize.width, alignment: .topLeading)
         .onDisappear(perform: applySettings)
     }
 
